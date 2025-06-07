@@ -303,12 +303,14 @@ class SkyGenToolDialog(QDialog):
             display_names = set()
 
             for mod_internal_name in mod_list.allMods():
+                # Changed from mobase.ModState.ENABLED back to mobase.ModState.ACTIVE for compatibility
                 if mod_list.state(mod_internal_name) & mobase.ModState.ACTIVE:
                     display_names.add(mod_list.displayName(mod_internal_name))
 
             base_esms = ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"]
             for esm_name in base_esms:
                 if esm_name in plugin_list.pluginNames():
+                    # mobase.PluginState.ACTIVE is typically correct for plugins
                     if plugin_list.state(esm_name) & mobase.PluginState.ACTIVE:
                         display_names.add(esm_name)
 
@@ -394,7 +396,7 @@ class SkyGenToolDialog(QDialog):
                 self.showError("xEdit Not Found", 
                                f"The '{expected_xedit_executable_name}' executable could not be found via ModOrganizer.ini or its path is invalid. "
                                "Please ensure it is correctly configured in Mod Organizer 2's executables and points to a valid xEdit binary.")
-                self.organizer.log(4, f"SkyGen: xEdit executable '{expected_xedit_executable_name}' not found via INI parsing or invalid path: {found_xedit_path}")
+                self.organizer.log(3, f"SkyGen: xEdit executable '{expected_xedit_executable_name}' not found via INI parsing or invalid path: {found_xedit_path}")
                 return False
             
             self.determined_xedit_executable_name = mo2_exec_name_from_ini
@@ -619,7 +621,7 @@ class SkyGenToolDialog(QDialog):
         if mod_internal_name in self.plugin_disambiguation_map:
             saved_plugin = self.plugin_disambiguation_map[mod_internal_name]
             if saved_plugin in self.organizer.pluginList().pluginNames() and \
-               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE:
+               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE: # This line remains as PluginState.ACTIVE for plugins
                 self.organizer.log(0, f"SkyGen: Using saved plugin '{saved_plugin}' for mod '{mo2_mod_display_name}'.")
                 return saved_plugin
             else:
@@ -964,7 +966,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         break
                 if not target_mod_internal_name and selected_target_mod_name.lower().endswith(".esm"):
                     if selected_target_mod_name in wrapped_organizer.pluginList().pluginNames():
-                        if wrapped_organizer.pluginList().state(selected_target_mod_name) & mobase.PluginState.ACTIVE:
+                        if wrapped_organizer.pluginList().state(selected_target_mod_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
                             target_mod_internal_name = selected_target_mod_name
                             wrapped_organizer.log(0, f"SkyGen: Target mod is active base game ESM: {target_mod_internal_name}")
 
@@ -1025,13 +1027,14 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     wrapped_organizer.log(1, "SkyGen: Generating YAMLs for all applicable source mods.")
                     generated_count = 0
                     for mod_internal_name in wrapped_organizer.modList().allMods():
+                        # Changed from mobase.ModState.ENABLED back to mobase.ModState.ACTIVE for compatibility
                         if wrapped_organizer.modList().state(mod_internal_name) & mobase.ModState.ACTIVE:
                             current_source_mo2_name = wrapped_organizer.modList().displayName(mod_internal_name)
                             current_source_plugin_name = None
                             
                             if current_source_mo2_name.lower().endswith(".esm"):
                                 if current_source_mo2_name in wrapped_organizer.pluginList().pluginNames():
-                                    if wrapped_organizer.pluginList().state(current_source_mo2_name) & mobase.PluginState.ACTIVE:
+                                    if wrapped_organizer.pluginList().state(current_source_mo2_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
                                         current_source_plugin_name = current_source_mo2_name
                                         wrapped_organizer.log(0, f"SkyGen: Source mod is active base game ESM: {current_source_plugin_name}")
                             else:
@@ -1057,7 +1060,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                                     current_source_mod_base_objects_from_xedit,
                                     all_exported_target_bases_by_formid,
                                     broad_category_swap_enabled,
-                                    search_keywords,
+                                    search_keywords, # Search keywords are now processed by generate_skypatcher_replacements
                                     self.dialog,
                                     Path(output_folder_path) # Pass original output_folder_path for YAML
                                 ):
@@ -1079,7 +1082,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             break
                     if not selected_source_mod_internal_name and selected_source_mod_name.lower().endswith(".esm"):
                         if selected_source_mod_name in wrapped_organizer.pluginList().pluginNames():
-                            if wrapped_organizer.pluginList().state(selected_source_mod_name) & mobase.PluginState.ACTIVE:
+                            if wrapped_organizer.pluginList().state(selected_source_mod_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
                                 selected_source_mod_internal_name = selected_source_mod_name
                                 wrapped_organizer.log(0, f"SkyGen: Source mod is active base game ESM: {selected_source_mod_internal_name}")
 
@@ -1107,7 +1110,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             selected_source_mod_base_objects_from_xedit,
                             all_exported_target_bases_by_formid,
                             broad_category_swap_enabled,
-                            search_keywords,
+                            search_keywords, # Search keywords are now processed by generate_skypatcher_replacements
                             self.dialog,
                             Path(output_folder_path) # Pass original output_folder_path for YAML
                         ):
