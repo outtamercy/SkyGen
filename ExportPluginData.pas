@@ -2,20 +2,17 @@ unit ExportPluginData;
 
 uses
   SysUtils, Classes, Dialogs, StrUtils, SyncObjs, Windows, IOUtils,
-  xSimUtils, xEditTypes, xEditLib, xEditJSON; // Added xEditJSON for TJSONObject
+  xSimUtils, xEditTypes, xEditLib, xEditJSON;
 
 type
-  // Define a custom log procedure type for flexibility
   TLogProcedure = procedure(const Msg: string);
 
 var
-  // Global reference to the log procedure
   _Log: TLogProcedure;
   DebugLogFile: TextFile;
   IsLogInitialized: Boolean = False;
-  GlobalException: Exception = nil; // To capture unhandled exceptions
+  GlobalException: Exception = nil;
 
-// Helper function to check if a directory exists and create it if needed
 function EnsureDirectoryExists(const Path: string): Boolean;
 var
   DirPath: string;
@@ -23,10 +20,8 @@ begin
   Result := True;
   DirPath := ExtractFilePath(Path);
   
-  // If no directory part, assume current directory which exists
   if DirPath = '' then Exit;
   
-  // Check if directory exists, create if it doesn't
   if not DirectoryExists(DirPath) then begin
     try
       ForceDirectories(DirPath);
@@ -39,13 +34,11 @@ begin
   end;
 end;
 
-// Default log procedure that writes to xEdit's console (AddMessage)
 procedure DefaultLog(const Msg: string);
 begin
   AddMessage('[ExportPluginData] ' + Msg);
 end;
 
-// Debug log procedure that writes to a file
 procedure DebugFileLog(const Msg: string);
 begin
   if IsLogInitialized then begin
@@ -53,40 +46,35 @@ begin
       Writeln(DebugLogFile, Msg);
       Flush(DebugLogFile);
     except
-      // If writing to log fails after initialization, disable logging and report to console
-      IsLogInitialized := False;
-      AddMessage('[ExportPluginData] WARNING: Failed to write to debug log. Further file logging disabled. Error: ' + Exception.Create('').Message);
-      // Fallback to console for this message
-      AddMessage('[ExportPluginData] ' + Msg); 
+      on E: Exception do begin
+        IsLogInitialized := False;
+        AddMessage('[ExportPluginData] WARNING: Failed to write to debug log. Further file logging disabled. Error: ' + E.Message);
+        AddMessage('[ExportPluginData] ' + Msg); 
+      end;
     end;
   end else begin
-    // If debug log not initialized, just use default console log
     DefaultLog(Msg);
   end;
 end;
 
-// This procedure will be called once when the script starts
 procedure InitializeDebugLog(const LogFilePath: string);
 begin
-  // Set default log procedure to console
   _Log := DefaultLog; 
 
   try
-    // First ensure the directory exists
     if not EnsureDirectoryExists(LogFilePath) then begin
       IsLogInitialized := False;
       _Log('CRITICAL: Failed to create directory for debug log at "' + LogFilePath + '".');
       _Log('CRITICAL: No debug log will be written. Please check path and permissions.');
-      Exit; // Cannot proceed with file logging
+      Exit;
     end;
     
     AssignFile(DebugLogFile, LogFilePath);
     if FileExists(LogFilePath) then
       Append(DebugLogFile)
     else
-      Rewrite(DebugLogFile); // Create new file if it doesn't exist
+      Rewrite(DebugLogFile);
 
-    // If successful, switch the global log procedure to file logging
     IsLogInitialized := True;
     _Log := DebugFileLog; 
     
@@ -96,20 +84,19 @@ begin
   except
     on E: EInOutError do begin
       IsLogInitialized := False;
-      _Log := DefaultLog; // Fallback to console for critical error
+      _Log := DefaultLog;
       _Log('CRITICAL: Failed to initialize debug log at "' + LogFilePath + '". I/O Error: ' + E.Message);
       _Log('CRITICAL: No debug log will be written. Please check path and permissions. Last OS Error: ' + IntToStr(GetLastError));
     end;
     on E: Exception do begin
       IsLogInitialized := False;
-      _Log := DefaultLog; // Fallback to console for critical error
+      _Log := DefaultLog;
       _Log('CRITICAL: Failed to initialize debug log at "' + LogFilePath + '". General Error: ' + E.Message);
       _Log('CRITICAL: No debug log will be written. Please check path and permissions. Last OS Error: ' + IntToStr(GetLastError));
     end;
   end;
 end;
 
-// This procedure will be called after the script finishes
 procedure FinalizeDebugLog;
 begin
   if IsLogInitialized then begin
@@ -117,12 +104,13 @@ begin
       _Log('--- ExportPluginData Debug Log End: ' + DateTimeToStr(Now) + ' ---');
       CloseFile(DebugLogFile);
     except
-      AddMessage('[ExportPluginData] WARNING: Failed to finalize debug log. Error: ' + Exception.Create('').Message);
+      on E: Exception do begin
+        AddMessage('[ExportPluginData] WARNING: Failed to finalize debug log. Error: ' + E.Message);
+      end;
     end;
   end;
 end;
 
-// Function to safely get a command line argument value
 function GetCmdLineArg(const ParamName: string): string;
 var
   i: Integer;
@@ -136,7 +124,6 @@ begin
   end;
 end;
 
-// This is the main script execution point
 function Process(EditorID, FormID: string; SaveFile: Boolean; var Message: string): Integer;
 var
   OutputPath: string;
@@ -144,63 +131,71 @@ var
   FileStream: TFileStream;
   OutputJSON: TJSONObject;
   PluginName: string;
-  BaseRecordsArray: TJSONArray; // Example for a structured output
+  BaseRecordsArray: TJSONArray;
   i: Integer;
 begin
-  Result := 1; // Default to error
-  GlobalException := nil; // Reset global exception
+  Result := 1;
+  GlobalException := nil;
 
-  // Initialize debug log based on command line argument
   DebugLogPath := GetCmdLineArg('-debuglog:');
   if DebugLogPath = '' then
-    DebugLogPath := 'ExportPluginData_Debug.log'; // Default log file in xEdit directory if not specified
+    DebugLogPath := 'ExportPluginData_Debug.log';
   
   InitializeDebugLog(ExpandFileName(DebugLogPath));
   _Log('Script Process function started.');
   _Log('Parsed Debug Log Path: ' + DebugLogPath);
   _Log('Expanded Debug Log Path: ' + ExpandFileName(DebugLogPath));
+  
+  // Debug: Log all command line parameters
+  _Log('Total command line parameters: ' + IntToStr(ParamCount));
+  for i := 1 to ParamCount do begin
+    _Log('Param[' + IntToStr(i) + ']: ' + ParamStr(i));
+  end;
 
-  // Get output path from command line argument
   OutputPath := GetCmdLineArg('-o:');
   if OutputPath = '' then begin
     _Log('❌ ERROR: Output path (-o:) not specified. Script cannot proceed.');
-    Result := 1; // Indicate error
+    Result := 1;
     Exit;
   end;
-  OutputPath := ExpandFileName(OutputPath); // Convert to absolute path
+  OutputPath := ExpandFileName(OutputPath);
   _Log('Parsed Output Path: ' + GetCmdLineArg('-o:'));
   _Log('Expanded Output Path: ' + OutputPath);
 
-  // Extract Plugin Name from the current file
-  PluginName := GetFileName(GetScriptFile());
-  _Log('Processing Plugin: ' + PluginName);
-
-  // --- Start generating JSON data ---
+  PluginName := GetCmdLineArg('-plugin:');
+  if PluginName = '' then begin
+    PluginName := 'Unknown_Plugin';
+    _Log('WARNING: Plugin name not specified via -plugin: argument. Using default: ' + PluginName);
+  end else begin
+    _Log('Processing Plugin: ' + PluginName);
+  end;
+  
   OutputJSON := TJSONObject.Create;
   try
-    OutputJSON.A['pluginName'] := PluginName;
-    OutputJSON.A['editorID'] := EditorID;
-    OutputJSON.A['formID'] := FormID;
-    OutputJSON.A['scriptExecutionTime'] := DateTimeToStr(Now);
+    OutputJSON.AddPair('pluginName', PluginName);
+    OutputJSON.AddPair('editorID', EditorID);
+    OutputJSON.AddPair('formID', FormID);
+    OutputJSON.AddPair('scriptExecutionTime', DateTimeToStr(Now));
 
-    // Example of adding structured data (e.g., base objects from a plugin)
     BaseRecordsArray := TJSONArray.Create;
     try
-      // In a real scenario, you would populate this array by iterating through xEdit records
-      // For demonstration, let's add some mock data
       for i := 1 to 3 do begin
         BaseRecordsArray.Add(TJSONObject.Create.AddPair('id', 'MockRecord' + IntToStr(i)).AddPair('type', 'MISC'));
       end;
-      OutputJSON.A['sourceModBaseObjects'] := BaseRecordsArray;
+      OutputJSON.AddPair('sourceModBaseObjects', BaseRecordsArray);
+      BaseRecordsArray := nil;
     except
       on E: Exception do begin
         _Log('WARNING: Failed to generate BaseRecordsArray. Error: ' + E.Message);
+        if Assigned(BaseRecordsArray) then begin
+          BaseRecordsArray.Free; 
+          BaseRecordsArray := nil;
+        end;
       end;
     end;
 
     _Log('Attempting to create final output file at: "' + OutputPath + '"');
     try
-      // First ensure the directory exists for the output file
       if not EnsureDirectoryExists(OutputPath) then begin
         _Log('❌ FATAL: Failed to create directory for output file at "' + OutputPath + '". Last OS Error: ' + IntToStr(GetLastError));
         raise Exception.Create('Failed to create directory for output file');
@@ -210,28 +205,27 @@ begin
       try
         OutputJSON.SaveToStream(FileStream);
       finally
-        FileStream.Free; // Ensure stream is freed even if SaveToStream fails
+        FileStream.Free;
       end;
       _Log('✅ Export complete. Records saved to: "' + OutputPath + '"');
-      Result := 0; // Success
+      Result := 0;
     except
       on E: EInOutError do begin
         _Log('❌ FATAL: EInOutError when creating or writing to output file "' + OutputPath + '". Error: ' + E.Message + '. Last OS Error: ' + IntToStr(GetLastError));
-        raise; // Re-raise the exception to be caught by the outer block for cleanup
+        raise;
       end;
       on E: Exception do begin
         _Log('❌ FATAL: Failed to create or write to output file: ' + E.Message + '. Last OS Error: ' + IntToStr(GetLastError));
-        raise; // Re-raise the exception
+        raise;
       end;
     end;
   finally
-    OutputJSON.Free; // Ensure JSON object is freed
+    OutputJSON.Free;
   end;
 
+  _Log('Script Process function finished. Result Code: ' + IntToStr(Result)); 
   FinalizeDebugLog();
-  _Log('Script Process function finished. Result Code: ' + IntToStr(Result));
   
-  // Set the message variable for xEdit's console output (if Process returns 0)
   if Result = 0 then
     Message := 'Successfully exported plugin data.'
   else if GlobalException <> nil then
@@ -239,20 +233,19 @@ begin
   else
     Message := 'Script finished with errors. Check log for details.';
 
-  Exit; // Ensure we exit cleanly
+  Exit;
 end;
 
-// Global exception handler for any unhandled exceptions in the script
 function SafeProcess(EditorID, FormID: string; SaveFile: Boolean; var Message: string): Integer;
 begin
   try
     Result := Process(EditorID, FormID, SaveFile, Message);
   except
     on E: Exception do begin
-      GlobalException := E; // Store the exception
-      Result := 99; // Indicate general script error
+      GlobalException := E;
+      Result := 99;
       AddMessage('[ExportPluginData] UNHANDLED EXCEPTION in SafeProcess: ' + E.Message);
-      AddMessage('[ExportPluginData] Stack Trace (if available): ' + E.StackTrace); // xEdit might not provide this
+      AddMessage('[ExportPluginData] Stack Trace (if available): ' + E.StackTrace);
       Message := 'Script encountered an unexpected error: ' + E.Message;
     end;
   end;
