@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 from collections import defaultdict
 import time # Added for time.sleep
+from typing import Optional
 
 # Import functions from the utility file
 from .skygen_file_utilities import (
@@ -81,11 +82,11 @@ except ImportError:
         def addItem(self, *args, **kwargs): pass
     class QMessageBox:
         @staticmethod
-        def critical(*args, **kwargs): print(f"CRITICAL: {args[2]}")
+        def critical(*args, **kwargs): print(f"CRITICAL: {args[2] if len(args) > 2 else 'No message'}")
         @staticmethod
-        def warning(*args, **kwargs): print(f"WARNING: {args[2]}")
+        def warning(*args, **kwargs): print(f"WARNING: {args[2] if len(args) > 2 else 'No message'}")
         @staticmethod
-        def information(*args, **kwargs): print(f"INFO: {args[2]}")
+        def information(*args, **kwargs): print(f"INFO: {args[2] if len(args) > 2 else 'No message'}")
     class QButtonGroup:
         def __init__(self, *args, **kwargs): pass
     class QWidget:
@@ -121,6 +122,11 @@ except ImportError:
         def currentRow(self): return -1 # NEW: Added currentRow dummy method
     class QListWidgetItem: # Dummy for QListWidgetItem
         def __init__(self, *args, **kwargs): pass
+    class QCheckBox: # Dummy for QCheckBox
+        def __init__(self, *args, **kwargs): pass
+        def setChecked(self, *args, **kwargs): pass
+        def isChecked(self): return False
+        def stateChanged(self): return type('obj', (object,), {'connect': lambda *args: None})()
     class QCoreApplication: # NEW: Dummy QCoreApplication
         @staticmethod
         def translate(context, text, disambiguation=None, n=-1): return text
@@ -128,6 +134,7 @@ except ImportError:
 
 # Define a wrapper for mobase.IOrganizer to handle missing 'log' method
 class OrganizerWrapper:
+    """Wrapper for mobase.IOrganizer with enhanced logging capabilities."""
     def __init__(self, actual_organizer: mobase.IOrganizer):
         self._actual_organizer = actual_organizer
         # Define log level mapping internally
@@ -152,9 +159,17 @@ class OrganizerWrapper:
             # Ensure the file is flushed immediately after writing
             self._log_file.reconfigure(line_buffering=True) # Enables line buffering for immediate flushing
             self.log(1, f"SkyGen: Custom log file opened at: {log_file_path}")
-        except IOError as e:
+        except (IOError, OSError) as e:
             print(f"[CRITICAL] SkyGen: Failed to open custom log file: {e}")
             self._log_file = None # Ensure it's None if opening failed
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - ensures log file is closed."""
+        self.close_log_file()
 
     def log(self, level, message):
         """
@@ -499,27 +514,48 @@ class SkyGenToolDialog(QDialog):
                 with open(config_file_path, 'r', encoding='utf-8') as f:
                     config_data = json.load(f)
                     self.organizer.log(1, "SkyGen: Successfully loaded config.json.")
-            except (IOError, json.JSONDecodeError) as e:
+            except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 self.organizer.log(3, f"SkyGen: ERROR: Could not load config.json: {e}")
+                # Try to backup corrupted config
+                try:
+                    backup_path = config_file_path.with_suffix('.json.backup')
+                    config_file_path.rename(backup_path)
+                    self.organizer.log(2, f"SkyGen: Corrupted config backed up to: {backup_path}")
+                except Exception as backup_error:
+                    self.organizer.log(3, f"SkyGen: Failed to backup corrupted config: {backup_error}")
         else:
             self.organizer.log(1, "SkyGen: config.json not found. Using empty configuration.")
 
+        # Use .get() with proper defaults and type checking
         self.export_script_path = config_data.get("export_script_path", "")
         self.output_folder_path = config_data.get("output_folder_path", "")
         self.selected_game_version = config_data.get("selected_game_version", "SkyrimSE")
         self.selected_output_type = config_data.get("selected_output_type", "SkyPatcher YAML")
-        self.plugin_disambiguation_map = config_data.get("plugin_disambiguation_map", {})
+        
+        # Ensure plugin_disambiguation_map is a dict
+        plugin_map = config_data.get("plugin_disambiguation_map", {})
+        self.plugin_disambiguation_map = plugin_map if isinstance(plugin_map, dict) else {}
 
 
     def _save_config(self, config: dict):
         config_file_path = Path(__file__).parent / "config.json"
         try:
             config_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(config_file_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=4)
+            # Write to temporary file first, then rename for atomic operation
+            temp_path = config_file_path.with_suffix('.json.tmp')
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+            temp_path.replace(config_file_path)
             self.organizer.log(1, "SkyGen: Successfully saved config.json.")
-        except IOError as e:
+        except (IOError, OSError, UnicodeEncodeError) as e:
             self.organizer.log(3, f"SkyGen: ERROR: Could not save config.json: {e}")
+            # Clean up temp file if it exists
+            temp_path = config_file_path.with_suffix('.json.tmp')
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass  # Ignore cleanup errors
 
 
     def _on_generate_single_clicked(self):
@@ -579,11 +615,11 @@ class SkyGenToolDialog(QDialog):
         cleaned = cleaned.replace("'", "").replace("&", "and").replace(" ", "_")
         return cleaned.strip()
 
-    def _get_plugin_name_from_mod_name(self, mo2_mod_display_name: str, mod_internal_name: str) -> str | None:
+    def _get_plugin_name_from_mod_name(self, mo2_mod_display_name: str, mod_internal_name: str) -> Optional[str]:
         if mod_internal_name in self.plugin_disambiguation_map:
             saved_plugin = self.plugin_disambiguation_map[mod_internal_name]
             if saved_plugin in self.organizer.pluginList().pluginNames() and \
-               self.organizer.pluginList().state(saved_plugin) & mobase.ModState.ACTIVE:
+               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE:
                 self.organizer.log(0, f"SkyGen: Using saved plugin '{saved_plugin}' for mod '{mo2_mod_display_name}'.")
                 return saved_plugin
             else:
@@ -599,7 +635,7 @@ class SkyGenToolDialog(QDialog):
             plugin_stem = Path(plugin_filename).stem
             cleaned_plugin_stem = self.clean_mod_name_for_plugin_match(plugin_stem)
 
-            if (plugin_state & mobase.ModState.ACTIVE) and \
+            if (plugin_state & mobase.PluginState.ACTIVE) and \
                            (cleaned_plugin_stem == cleaned_mod_name or
                             cleaned_plugin_stem.startswith(cleaned_mod_name) or
                             cleaned_mod_name in cleaned_plugin_stem):
@@ -848,6 +884,9 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
     def flags(self):
         return mobase.PluginFeature.Tool | mobase.PluginFeature.Python
 
+    def isActive(self):
+        return True
+
     def settings(self):
         return []
 
@@ -878,8 +917,14 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             output_folder_path = self.dialog.output_folder_path # Keep this as it's the dialog's path
 
             # Define a temporary, simple output directory for testing
-            temp_test_output_dir = Path("C:/SkyGen_Temp_Test") # You can change this to "C:/Temp/SkyGen_Test" if C:/Temp exists
-            temp_test_output_dir.mkdir(parents=True, exist_ok=True) # Ensure this directory exists
+            import tempfile
+            try:
+                temp_test_output_dir = Path(tempfile.gettempdir()) / "SkyGen_Temp_Test"
+                temp_test_output_dir.mkdir(parents=True, exist_ok=True) # Ensure this directory exists
+            except (OSError, PermissionError) as e:
+                wrapped_organizer.log(3, f"SkyGen: Failed to create temp directory, falling back to plugin directory: {e}")
+                temp_test_output_dir = Path(__file__).parent / "temp"
+                temp_test_output_dir.mkdir(parents=True, exist_ok=True)
 
             selected_output_type = self.dialog.selected_output_type
 
