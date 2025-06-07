@@ -113,7 +113,7 @@ def get_xedit_path_from_ini(organizer: mobase.IOrganizer, game_version: str, dia
                     else:
                         organizer.log(2, f"SkyGen: WARNING: Found xEdit entry in INI ('{title}' -> '{binary_path_str}'), but binary not found at resolved path: {absolute_xedit_path}")
                 else:
-                    organizer.log(0, f"SkyGen: DEBUG: Skipping non-xEdit executable in INI: '{title}')")
+                    organizer.log(0, f"SkyGen: DEBUG: Skipping non-xEdit executable in INI: '{title}'")
     except Exception as e:
         organizer.log(3, f"SkyGen: ERROR: Error reading or parsing ModOrganizer.ini from {ini_file_path}: {e}\n{traceback.format_exc()}")
         dialog_instance.showError("INI Read Error", f"Error reading or parsing ModOrganizer.ini from {ini_file_path}: {e}")
@@ -165,13 +165,14 @@ def get_game_root_from_general_ini(organizer_base_path: str, organizer_logger: m
         dialog_instance.showError("INI Read Error", f"Error reading ModOrganizer.ini for game path: {e}")
         return None
 
-def sanitize_path_for_pascal(path_str):
+def sanitize_path_for_pascal(path_str: str) -> str:
     """
-    Replaces problematic characters in a path string for Pascal file I/O with underscores.
+    Replaces problematic characters in a filename (not full path) for Pascal file I/O with underscores.
     Ensures no trailing spaces or periods (Windows restriction).
+    Note: This should only be used for filenames, not full paths.
     """
-    # Replace problematic characters with underscores
-    sanitized = re.sub(r'[<>:"/\\|?*]', '_', path_str)
+    # Replace problematic characters with underscores (including apostrophes and ampersands)
+    sanitized = re.sub(r'[<>:"|?*&\']', '_', path_str)
     # Ensure no trailing spaces or periods (Windows restriction)
     sanitized = sanitized.rstrip(' .')
     return sanitized
@@ -221,7 +222,12 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
     # NEW: Create a super-sanitized stem for ALL filenames used by xEdit/Pascal
     # This removes all characters that are not alphanumeric or underscore
     # This is CRITICAL for Pascal's file I/O to work correctly with filenames containing special characters.
-    super_sanitized_filename_base = sanitize_path_for_pascal(Path(target_plugin_name).stem)
+    original_stem = Path(target_plugin_name).stem
+    super_sanitized_filename_base = sanitize_path_for_pascal(original_stem)
+    
+    # Debug logging to track sanitization
+    organizer.log(0, f"SkyGen: DEBUG: Original plugin stem: '{original_stem}'")
+    organizer.log(0, f"SkyGen: DEBUG: Sanitized filename base: '{super_sanitized_filename_base}'")
 
     export_json_path = output_base_dir.resolve() / f"SkyGen_xEdit_Export_{super_sanitized_filename_base}_{timestamp}.json"
     export_log_path = output_base_dir.resolve() / f"SkyGen_xEdit_Log_{super_sanitized_filename_base}_{timestamp}.log"
@@ -244,6 +250,10 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
     # Sanitize target_plugin_name for passing to Pascal script via -D:TargetPlugin
     # This is separate because it's a value passed *into* the script, not part of a filename creation.
     sanitized_plugin_name_for_script = re.sub(r'[<>:"/\\|?*&\']', '_', target_plugin_name)
+    
+    # Debug logging to track plugin name sanitization
+    organizer.log(0, f"SkyGen: DEBUG: Original plugin name: '{target_plugin_name}'")
+    organizer.log(0, f"SkyGen: DEBUG: Sanitized plugin name for script: '{sanitized_plugin_name_for_script}'")
 
 
     # Construct the xEdit arguments
@@ -251,10 +261,11 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
         # The game mode argument (-sse or -tes5vr) will be inserted here at index 0
         # by the existing logic below.
 
-        # Arguments for the Pascal script - using double backslashes for Windows paths
-        f"-o:\"{str(export_json_path).replace('\\', '\\\\')}\"",
-        f"-l:\"{str(export_log_path).replace('\\', '\\\\')}\"",
-        f"-debuglog:\"{str(export_pascal_debug_log_path).replace('\\', '\\\\')}\"", # Correctly passing Pascal debug log path
+        # Arguments for the Pascal script - using sanitized paths to avoid special character issues
+        f"-o:\"{str(export_json_path)}\"",
+        f"-l:\"{str(export_log_path)}\"",
+        f"-debuglog:\"{str(export_pascal_debug_log_path)}\"", # Correctly passing Pascal debug log path
+        f"-plugin:\"{sanitized_plugin_name_for_script}\"", # Pass plugin name to Pascal script
 
         # Pass the target plugin name directly for DynDOLOD-style loading
         # Using the already sanitized version to avoid issues with special characters like '&' and "'"
@@ -375,7 +386,7 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
         return False
 
     except Exception as e:
-        organizer.log(4, f"Error launching or running xEdit: {e}\n{traceback.format_exc()}")
+        organizer.log(3, f"Error launching or running xEdit: {e}\n{traceback.format_exc()}")
         dialog.showError("xEdit Error", f"An unexpected error occurred while trying to run xEdit: {e}. Check MO2 logs for more details.")
         return False
     finally:
@@ -443,7 +454,7 @@ def generate_replacements(organizer: mobase.IOrganizer, igpc_data: dict, selecte
                     continue
             else: # Standard EDID matching
                 if base_edid_from_xedit:
-                    source_bases_by_edid = {obj.get("EDID"): obj.get("formId") for obj in source_mod_base_objects_from_xedit if obj.get("EDID") and obj.get("formId")}
+                    source_bases_by_edid = {obj.get("EDID"): obj.get("FormID") for obj in source_mod_base_objects_from_xedit if obj.get("EDID") and obj.get("FormID")}
                     found_source_base_formid = source_bases_by_edid.get(base_edid_from_xedit)
                     
                     if found_source_base_formid:
@@ -458,12 +469,12 @@ def generate_replacements(organizer: mobase.IOrganizer, igpc_data: dict, selecte
             if new_base_form_id_from_source:
                 new_base_identifier = f"{new_base_plugin_name}|{new_base_form_id_from_source}"
                 # The reference here is the target mod's base object that needs to be replaced
-                reference_identifier = f"{base_origin_mod_from_xedit}|{base_object_form_id}"
+                reference_identifier = f"{base_origin_mod_from_xedit}|{base_object_form_id_from_igpc}"
                 
                 grouped_replacements[new_base_identifier]["newBase"] = new_base_identifier
                 grouped_replacements[new_base_identifier]["references"].add(reference_identifier)
             else:
-                organizer.log(2, f"Could not determine new base for target base object {base_object_form_id} from {base_origin_mod_from_xedit}.") # WARNING
+                organizer.log(2, f"Could not determine new base for target base object {base_object_form_id_from_igpc} from {base_origin_mod_from_xedit}.") # WARNING
 
     # Convert grouped replacements to the final list format
     for _, data in grouped_replacements.items():
@@ -662,7 +673,7 @@ def generate_skypatcher_replacements(organizer: mobase.IOrganizer, selected_cate
                     continue
             else: # Standard EDID matching
                 if base_edid_from_xedit:
-                    source_bases_by_edid = {obj.get("EDID"): obj.get("formId") for obj in source_mod_base_objects_from_xedit if obj.get("EDID") and obj.get("formId")}
+                    source_bases_by_edid = {obj.get("EDID"): obj.get("FormID") for obj in source_mod_base_objects_from_xedit if obj.get("EDID") and obj.get("FormID")}
                     found_source_base_formid = source_bases_by_edid.get(base_edid_from_xedit)
                     
                     if found_source_base_formid:
@@ -731,8 +742,7 @@ def generate_and_write_skypatcher_yaml(organizer: mobase.IOrganizer, selected_ca
     for mod_name in organizer.modList().allMods():
         mod_obj = organizer.getMod(mod_name)
         if mod_obj and mod_obj.displayName().lower() == "skypatcher": # Case-insensitive check
-            # Changed from mobase.ModState.ACTIVE to mobase.ModState.ENABLED
-            if organizer.modList().state(mod_name) & mobase.ModState.ENABLED: # Check if the mod is ENABLED (checked in left pane)
+            if organizer.modList().state(mod_name) & mobase.ModState.ACTIVE: # Check if the mod is ACTIVE (checked in left pane)
                 skypatcher_mod_path = Path(mod_obj.absolutePath())
                 break
 
@@ -748,7 +758,7 @@ def generate_and_write_skypatcher_yaml(organizer: mobase.IOrganizer, selected_ca
         os.makedirs(output_dir, exist_ok=True)
     except OSError as e:
         dialog_instance.showError("File System Error", f"Failed to create output directory {output_dir}:\n{e}")
-        organizer.log(4, f"Failed to create output directory {output_dir}: {e}") # CRITICAL
+        organizer.log(3, f"Failed to create output directory {output_dir}: {e}") # ERROR
         return 0
 
     # Sanitize the category name for the filename
@@ -766,5 +776,5 @@ def generate_and_write_skypatcher_yaml(organizer: mobase.IOrganizer, selected_ca
         return 1 # Success
     except Exception as e:
         dialog_instance.showError("File Write Error", f"Failed to write YAML file to {yaml_file_path}:\n{e}")
-        organizer.log(4, f"Failed to write YAML file to {yaml_file_path}: {e}") # CRITICAL
+        organizer.log(3, f"Failed to write YAML file to {yaml_file_path}: {e}") # ERROR
         return 0
