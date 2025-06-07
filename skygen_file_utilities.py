@@ -9,6 +9,10 @@ import time
 import configparser
 import re
 
+# Add Logger Import and Instance
+# from mobase import log as mobase_log # DELETED
+# logger = mobase_log.logger() # DELETED
+
 # --- Utility Functions (Global helpers) ---
 
 def load_json_data(organizer: mobase.IOrganizer, file_path: Path, description: str, dialog_instance) -> dict | None:
@@ -172,7 +176,7 @@ def sanitize_path_for_pascal(path_str: str) -> str:
     Note: This should only be used for filenames, not full paths.
     """
     # Replace problematic characters with underscores (including apostrophes and ampersands)
-    sanitized = re.sub(r'[<>:"|?*&\']', '_', path_str)
+    sanitized = re.sub(r'[<>:"|?*&\']', '_', path_str) # Changed: Added '&' and '\'' to regex
     # Ensure no trailing spaces or periods (Windows restriction)
     sanitized = sanitized.rstrip(' .')
     return sanitized
@@ -229,11 +233,10 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
     organizer.log(0, f"SkyGen: DEBUG: Original plugin stem: '{original_stem}'")
     organizer.log(0, f"SkyGen: DEBUG: Sanitized filename base: '{super_sanitized_filename_base}'")
 
-    export_json_path = output_base_dir.resolve() / f"SkyGen_xEdit_Export_{super_sanitized_filename_base}_{timestamp}.json"
-    export_log_path = output_base_dir.resolve() / f"SkyGen_xEdit_Log_{super_sanitized_filename_base}_{timestamp}.log"
-    
-    # Define the path for the Pascal script's debug log using the same super-sanitized stem
-    export_pascal_debug_log_path = output_base_dir.resolve() / f"ExportPluginData_Debug_{super_sanitized_filename_base}_{timestamp}.log"
+    # FIX: Use super_sanitized_filename_base in the f-strings for file paths
+    export_json_path = output_base_dir.resolve() / f"SkyGen_xEdit_Export_{super_sanitized_filename_base}_{timestamp}.json" # Changed original_stem to super_sanitized_filename_base
+    export_log_path = output_base_dir.resolve() / f"SkyGen_xEdit_Log_{super_sanitized_filename_base}_{timestamp}.log"   # Changed original_stem to super_sanitized_filename_base
+    export_pascal_debug_log_path = output_base_dir.resolve() / f"ExportPluginData_Debug_{super_sanitized_filename_base}_{timestamp}.log" # Changed original_stem to super_sanitized_filename_base
 
     # Check for Existing Files and potential locks
     if export_json_path.exists():
@@ -249,7 +252,7 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
     
     # Sanitize target_plugin_name for passing to Pascal script via -D:TargetPlugin
     # This is separate because it's a value passed *into* the script, not part of a filename creation.
-    sanitized_plugin_name_for_script = re.sub(r'[<>:"/\\|?*&\']', '_', target_plugin_name)
+    sanitized_plugin_name_for_script = sanitize_path_for_pascal(target_plugin_name) # Changed: Now uses sanitize_path_for_pascal function
     
     # Debug logging to track plugin name sanitization
     organizer.log(0, f"SkyGen: DEBUG: Original plugin name: '{target_plugin_name}'")
@@ -261,10 +264,10 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
         # The game mode argument (-sse or -tes5vr) will be inserted here at index 0
         # by the existing logic below.
 
-        # Arguments for the Pascal script - using sanitized paths to avoid special character issues
-        f"-o:\"{str(export_json_path)}\"",
-        f"-l:\"{str(export_log_path)}\"",
-        f"-debuglog:\"{str(export_pascal_debug_log_path)}\"", # Correctly passing Pascal debug log path
+        # Arguments for the Pascal script - using sanitized paths and double backslashes for Windows paths
+        f"-o:\"{str(export_json_path).replace('\\', '\\\\')}\"",
+        f"-l:\"{str(export_log_path).replace('\\', '\\\\')}\"",
+        f"-debuglog:\"{str(export_pascal_debug_log_path).replace('\\', '\\\\')}\"", # Correctly passing Pascal debug log path
         f"-plugin:\"{sanitized_plugin_name_for_script}\"", # Pass plugin name to Pascal script
 
         # Pass the target plugin name directly for DynDOLOD-style loading
@@ -276,7 +279,6 @@ def run_xedit_export(organizer: mobase.IOrganizer, xedit_exe_path: Path, xedit_s
 
         # Pass the full, normalized path of the script
         f"-script:\"{os.path.normpath(str(xedit_script_path))}\"",
-
         "-IKnowWhatImDoing",
         "-NoAutoUpdate",
         "-NoAutoBackup",
@@ -742,7 +744,7 @@ def generate_and_write_skypatcher_yaml(organizer: mobase.IOrganizer, selected_ca
     for mod_name in organizer.modList().allMods():
         mod_obj = organizer.getMod(mod_name)
         if mod_obj and mod_obj.displayName().lower() == "skypatcher": # Case-insensitive check
-            if organizer.modList().state(mod_name) & mobase.ModState.ACTIVE: # Check if the mod is ACTIVE (checked in left pane)
+            if organizer.modList().state(mod_name) & mobase.ModState.ENABLED: # Changed: mobase.ModState.ACTIVE to mobase.ModState.ENABLED
                 skypatcher_mod_path = Path(mod_obj.absolutePath())
                 break
 
