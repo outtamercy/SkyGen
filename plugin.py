@@ -10,18 +10,21 @@ import time # Added for time.sleep
 from typing import Optional
 
 # Import functions from the utility file
+    # Import functions from the utility file
 from .skygen_file_utilities import (
-    # read_nexus_categories, # REMOVED: No longer using Nexus categories
-    load_json_data,
-    # find_xedit_path is now handled by direct path from UI and removed from utilities
-    run_xedit_export, # This function now expects xedit_exe_path and xedit_script_path directly
-    generate_replacements, # Now imported from utilities
-    generate_and_write_skypatcher_yaml, # Now imported from utilities
-    # load_config, # REMOEMoved: Re-implemented directly in plugin.py
-    # save_config # REMOVED: Re-implemented directly in plugin.py
-    generate_bos_ini_files, # NEW: Import for BOS INI generation - CONFIRMED PRESENT IN skygen_file_utilities.py
-    get_xedit_path_from_ini # NEW: Import for reading xEdit path from ModOrganizer.ini
-)
+        load_json_data,
+        run_xedit_export,
+        generate_and_write_skypatcher_yaml,
+        generate_bos_ini_files,
+        get_xedit_path_from_ini, # Keep this one as it's used in get_xedit_exe_path
+        get_xedit_exe_path,      # <--- THIS IS THE CRUCIAL ADDITION
+        write_xedit_ini_for_skygen,
+        write_pas_script_to_xedit,
+        clean_temp_script_and_ini
+    )
+    
+    
+
 
 # Ensure necessary modules are imported correctly and used appropriately
 try:
@@ -40,11 +43,11 @@ try:
         QSizePolicy,
         QFileDialog,
         QCheckBox,
-        QRadioButton, # NEW: Imported QRadioButton
-        QListWidget, # NEW: Added QListWidget
-        QListWidgetItem # NEW: Added QListWidgetItem
+        QRadioButton,
+        QListWidget,
+        QListWidgetItem
     )
-    from PyQt6.QtCore import Qt, QCoreApplication # MODIFIED: Added QCoreApplication
+    from PyQt6.QtCore import Qt, QCoreApplication
     from PyQt6.QtGui import QIcon
 except ImportError:
     print("One or more required PyQt modules are not installed. Please ensure PyQt6 is installed.")
@@ -65,14 +68,19 @@ except ImportError:
         def addWidget(self, *args, **kwargs): pass
     class QLabel:
         def __init__(self, *args, **kwargs): pass
+        def setVisible(self, *args, **kwargs): pass
     class QLineEdit:
         def __init__(self, *args, **kwargs): pass
         def setText(self, *args, **kwargs): pass
         def text(self): return ""
         def setPlaceholderText(self, *args, **kwargs): pass
+        def setReadOnly(self, *args, **kwargs): pass
+        def setVisible(self, *args, **kwargs): pass
     class QPushButton:
         def __init__(self, *args, **kwargs): pass
         def clicked(self): return type('obj', (object,), {'connect': lambda *args: None})()
+        def setText(self, *args, **kwargs): pass
+        def setVisible(self, *args, **kwargs): pass
     class QComboBox:
         def __init__(self, *args, **kwargs): pass
         def addItems(self, *args, **kwargs): pass
@@ -80,6 +88,7 @@ except ImportError:
         def currentText(self): return ""
         def itemText(self, index): return ""
         def addItem(self, *args, **kwargs): pass
+        def setVisible(self, *args, **kwargs): pass
     class QMessageBox:
         @staticmethod
         def critical(*args, **kwargs): print(f"CRITICAL: {args[2] if len(args) > 2 else 'No message'}")
@@ -89,6 +98,7 @@ except ImportError:
         def information(*args, **kwargs): print(f"INFO: {args[2] if len(args) > 2 else 'No message'}")
     class QButtonGroup:
         def __init__(self, *args, **kwargs): pass
+        def addButton(self, *args, **kwargs): pass
     class QWidget:
         def __init__(self, *args, **kwargs): pass
         def setLayout(self, *args, **kwargs): pass
@@ -97,6 +107,12 @@ except ImportError:
     class QFileDialog:
         @staticmethod
         def getOpenFileName(*args, **kwargs): return "", ""
+        @staticmethod
+        def getExistingDirectory(*args, **kwargs): return ""
+        def setFileMode(self, *args, **kwargs): pass
+        def setOption(self, *args, **kwargs): pass
+        def setDirectory(self, *args, **kwargs): pass
+        def selectedFiles(self): return []
     class Qt:
         class CheckState:
             Checked = type('obj', (object,), {'value': 2})()
@@ -104,33 +120,49 @@ except ImportError:
         class DialogCode:
             Accepted = 1
             Rejected = 0
+        AlignLeft = 0
+        AlignTop = 0
     class QIcon:
         def __init__(self, *args, **kwargs): pass
     class QApplication:
         def __init__(self, *args, **kwargs): pass
         def exec(self): return 0
         def exit(self, *args, **kwargs): pass
-    class QRadioButton: # NEW: Dummy QRadioButton
+    class QRadioButton:
         def __init__(self, *args, **kwargs): pass
         def setChecked(self, *args, **kwargs): pass
         def toggled(self): return type('obj', (object,), {'connect': lambda *args: None})()
-        def sender(self): return self # For lambda in connect
-    class QListWidget: # Dummy for QListWidget
+        def sender(self): return self
+        def setVisible(self, *args, **kwargs): pass
+    class QListWidget:
         def __init__(self, *args, **kwargs): pass
         def addItems(self, *args, **kwargs): pass
         def currentItem(self): return None
-        def currentRow(self): return -1 # NEW: Added currentRow dummy method
-    class QListWidgetItem: # Dummy for QListWidgetItem
+        def currentRow(self): return -1
+    class QListWidgetItem:
         def __init__(self, *args, **kwargs): pass
-    class QCheckBox: # Dummy for QCheckBox
+    class QCheckBox:
         def __init__(self, *args, **kwargs): pass
         def setChecked(self, *args, **kwargs): pass
         def isChecked(self): return False
         def stateChanged(self): return type('obj', (object,), {'connect': lambda *args: None})()
-    class QCoreApplication: # NEW: Dummy QCoreApplication
+        def setVisible(self, *args, **kwargs): pass
+    class QCoreApplication:
         @staticmethod
         def translate(context, text, disambiguation=None, n=-1): return text
-
+    class QFont:
+        def __init__(self, *args, **kwargs): pass
+    class QFontMetrics:
+        def __init__(self, *args, **kwargs): pass
+    class QEvent:
+        Type = type('obj', (object,), {'ContextMenu': 0})()
+    class QMenu:
+        def __init__(self, *args, **kwargs): pass
+        def exec(self, *args, **kwargs): return None
+        def addAction(self, *args, **kwargs): return None
+    class QAction:
+        def __init__(self, *args, **kwargs): pass
+        def triggered(self): return type('obj', (object,), {'connect': lambda *args: None})()
 
 # Define a wrapper for mobase.IOrganizer to handle missing 'log' method
 class OrganizerWrapper:
@@ -146,7 +178,7 @@ class OrganizerWrapper:
             4: "CRITICAL"
         }
 
-        # NEW: Custom log file setup
+        # Custom log file setup
         self._log_file = None
         try:
             # Determine the full path for the custom log file
@@ -154,12 +186,16 @@ class OrganizerWrapper:
             plugin_dir = Path(__file__).parent
             log_file_path = plugin_dir / "SkyGen_Debug.log"
             
-            # Open the file in append mode ('a')
-            self._log_file = open(log_file_path, 'a', encoding='utf-8')
+            # Open the file in write mode ('w')
+            self._log_file = open(log_file_path, 'w', encoding='utf-8')
             # Ensure the file is flushed immediately after writing
             self._log_file.reconfigure(line_buffering=True) # Enables line buffering for immediate flushing
             self.log(1, f"SkyGen: Custom log file opened at: {log_file_path}")
         except (IOError, OSError) as e:
+            # MODIFIED: Show QMessageBox on log file open failure
+            QMessageBox.critical(None, "SkyGen Log Error", 
+                                 f"Failed to open plugin debug log file at:\n{log_file_path}\n\n"
+                                 f"This is often due to permissions issues. Please ensure the plugin directory is writable.\nError: {e}")
             print(f"[CRITICAL] SkyGen: Failed to open custom log file: {e}")
             self._log_file = None # Ensure it's None if opening failed
 
@@ -180,7 +216,7 @@ class OrganizerWrapper:
         formatted_message = f"[{log_level_str}] {message}"
         print(formatted_message) # Always print, bypassing hasattr check
 
-        # NEW: Write to custom log file as well
+        # Write to custom log file as well
         if self._log_file:
             try:
                 self._log_file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {formatted_message}\n")
@@ -190,7 +226,7 @@ class OrganizerWrapper:
                 print(f"[CRITICAL] SkyGen: Failed to write to custom log file: {e}")
 
 
-    # NEW: Method to explicitly close the custom log file
+    # Method to explicitly close the custom log file
     def close_log_file(self):
         """
         Closes the custom log file if it was successfully opened.
@@ -231,7 +267,7 @@ class OrganizerWrapper:
             self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'overwritePath'. This method is required.")
             return ""
 
-    def startApplication(self, executableName: str, arguments: list[str], workingDirectory: str): # Removed stdout=False, stderr=False
+    def startApplication(self, executableName: str, arguments: list[str], workingDirectory: str):
         return self._actual_organizer.startApplication(executableName, arguments, workingDirectory)
 
     def getPathForExecutable(self, executableName: str):
@@ -255,7 +291,7 @@ class OrganizerWrapper:
             self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'getExecutables'. This method is required.")
             return []
 
-
+# ───────── UI Classes ─────────
 class PluginDisambiguationDialog(QDialog):
     def __init__(self, organizer_wrapper, mod_display_name, matching_plugins, parent=None):
         super().__init__(parent)
@@ -265,8 +301,6 @@ class PluginDisambiguationDialog(QDialog):
         self.selected_plugin = None
 
         self.setWindowTitle(f"Select Plugin for '{self.mod_display_name}'")
-        self.setMinimumWidth(400)
-
         layout = QVBoxLayout()
 
         label = QLabel(f"Multiple active plugins found for '{self.mod_display_name}'.\nPlease select the correct plugin file:")
@@ -333,22 +367,16 @@ class SkyGenToolDialog(QDialog):
             self.pre_exported_xedit_json_path = file_path
             self.xedit_json_lineEdit.setText(file_path)
 
-    def _browse_export_script(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select ExportPluginData.pas Script", "", "Pascal Script Files (*.pas)")
-        if file_path:
-            self.export_script_path = file_path
-            self.export_script_lineEdit.setText(file_path)
-
     def _browse_output_folder(self):
         folder_dialog = QFileDialog(self)
         folder_dialog.setFileMode(QFileDialog.FileMode.Directory)
         folder_dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
 
-        initial_dir = self.organizer.basePath()
-        if not initial_dir:
-            initial_dir = self.organizer.gameDataPath()
+        initial_dir = self.organizer.overwritePath() # Default to overwrite
         if initial_dir and os.path.exists(initial_dir):
             folder_dialog.setDirectory(initial_dir)
+        elif self.organizer.basePath() and os.path.exists(self.organizer.basePath()):
+             folder_dialog.setDirectory(self.organizer.basePath()) # Fallback to base path
 
         if folder_dialog.exec():
             selected_folder = folder_dialog.selectedFiles()
@@ -366,47 +394,36 @@ class SkyGenToolDialog(QDialog):
     def showInformation(self, title: str, message: str):
         QMessageBox.information(self, title, message)
 
+    def _get_config_data_for_path_lookup(self) -> dict:
+        """
+        Helper to read config.json for initial xEdit path lookup, similar to display().
+        """
+        config_file_path = Path(__file__).parent / "config.json"
+        config_data = {}
+        if config_file_path.is_file():
+            try:
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+            except Exception as e:
+                self.organizer.log(3, f"SkyGen: ERROR: Could not load config.json for path lookup in _get_config_data_for_path_lookup: {e}")
+        return config_data
+
+
     def _validate_inputs(self) -> bool:
         if not hasattr(self, 'output_folder_path') or not self.output_folder_path:
             self.showWarning("Input Missing", "Please select an Output Folder for the exports.")
             return False
-
         if self.selected_output_type == "SkyPatcher YAML":
+            # NEW: Centralized xEdit path validation
+            xedit_path, xedit_mo2_name = get_xedit_exe_path(self._get_config_data_for_path_lookup(), self.organizer, self)
+            self.determined_xedit_exe_path = xedit_path
+            self.determined_xedit_executable_name = xedit_mo2_name
+            
+            # Remaining validations (retained after replacement)
             if self.pre_exported_xedit_json_path and not Path(self.pre_exported_xedit_json_path).is_file():
                 self.showError("Input Missing", "Pre-exported xEdit JSON file path is invalid.")
                 return False
-
-            expected_xedit_executable_name = ""
-            if self.selected_game_version == "SkyrimSE":
-                expected_xedit_executable_name = "SSEEdit"
-            elif self.selected_game_version == "SkyrimVR":
-                expected_xedit_executable_name = "TES5VREdit64"
             
-            if not expected_xedit_executable_name:
-                self.showError("xEdit Error", "Could not determine xEdit executable name based on selected game version.")
-                return False
-
-            found_xedit_path, mo2_exec_name_from_ini = get_xedit_path_from_ini(
-                self.organizer,
-                self.selected_game_version,
-                self
-            )
-            
-            if not found_xedit_path or not Path(found_xedit_path).is_file():
-                self.showError("xEdit Not Found", 
-                               f"The '{expected_xedit_executable_name}' executable could not be found via ModOrganizer.ini or its path is invalid. "
-                               "Please ensure it is correctly configured in Mod Organizer 2's executables and points to a valid xEdit binary.")
-                self.organizer.log(3, f"SkyGen: xEdit executable '{expected_xedit_executable_name}' not found via INI parsing or invalid path: {found_xedit_path}")
-                return False
-            
-            self.determined_xedit_executable_name = mo2_exec_name_from_ini
-            self.determined_xedit_exe_path = found_xedit_path
-
-
-            if not self.export_script_path or not Path(self.export_script_path).is_file():
-                self.showError("Input Missing", "Please select a valid ExportPluginData.pas script.")
-                return False
-
             if not self.selected_game_version:
                 self.showError("Invalid Selection", "Please select a valid Game Version.")
                 return False
@@ -452,11 +469,7 @@ class SkyGenToolDialog(QDialog):
         self.xedit_json_label.setVisible(is_yaml)
         self.xedit_json_lineEdit.setVisible(is_yaml)
         self.xedit_json_button.setVisible(is_yaml)
-
-        self.export_script_label.setVisible(is_yaml)
-        self.export_script_lineEdit.setVisible(is_yaml)
-        self.export_script_button.setVisible(is_yaml)
-
+            
         self.output_folder_label.setVisible(True)
         self.output_folder_edit.setVisible(True)
         self.output_folder_button.setVisible(True)
@@ -528,22 +541,22 @@ class SkyGenToolDialog(QDialog):
         else:
             self.organizer.log(1, "SkyGen: config.json not found. Using empty configuration.")
 
-        # Use .get() with proper defaults and type checking
-        self.export_script_path = config_data.get("export_script_path", "")
-        self.output_folder_path = config_data.get("output_folder_path", "")
+        self.full_export_script_path = Path(config_data.get("full_export_script_path", "H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas"))
+        # MODIFIED: Default output folder to MO2's overwrite path
+        self.output_folder_path = config_data.get("output_folder_path", str(self.organizer.overwritePath())) 
         self.selected_game_version = config_data.get("selected_game_version", "SkyrimSE")
         self.selected_output_type = config_data.get("selected_output_type", "SkyPatcher YAML")
+        # INSERTED: Load determined xEdit paths and name from config
+        self.determined_xedit_executable_name = config_data.get("xedit_mo2_name", "")
+        self.determined_xedit_exe_path = Path(config_data.get("xedit_exe_path", ""))
         
-        # Ensure plugin_disambiguation_map is a dict
         plugin_map = config_data.get("plugin_disambiguation_map", {})
         self.plugin_disambiguation_map = plugin_map if isinstance(plugin_map, dict) else {}
-
 
     def _save_config(self, config: dict):
         config_file_path = Path(__file__).parent / "config.json"
         try:
             config_file_path.parent.mkdir(parents=True, exist_ok=True)
-            # Write to temporary file first, then rename for atomic operation
             temp_path = config_file_path.with_suffix('.json.tmp')
             with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=4, ensure_ascii=False)
@@ -551,24 +564,25 @@ class SkyGenToolDialog(QDialog):
             self.organizer.log(1, "SkyGen: Successfully saved config.json.")
         except (IOError, OSError, UnicodeEncodeError) as e:
             self.organizer.log(3, f"SkyGen: ERROR: Could not save config.json: {e}")
-            # Clean up temp file if it exists
             temp_path = config_file_path.with_suffix('.json.tmp')
             if temp_path.exists():
                 try:
                     temp_path.unlink()
                 except Exception:
-                    pass  # Ignore cleanup errors
-
+                    pass
 
     def _on_generate_single_clicked(self):
         self.organizer.log(1, "SkyGen: 'Generate Single YAML' button clicked.")
         if self._validate_inputs():
             config_to_save = {
-                "export_script_path": self.export_script_path,
                 "output_folder_path": self.output_folder_path,
                 "selected_game_version": self.selected_game_version,
                 "selected_output_type": self.selected_output_type,
-                "plugin_disambiguation_map": self.plugin_disambiguation_map
+                "plugin_disambiguation_map": self.plugin_disambiguation_map,
+                # INSERTED: Save determined xEdit name and path before script path
+                "xedit_mo2_name": self.determined_xedit_executable_name,
+                "xedit_exe_path": str(self.determined_xedit_exe_path),
+                "full_export_script_path": str(self.full_export_script_path),
             }
             self._save_config(config_to_save)
             self.generate_all = False
@@ -580,17 +594,20 @@ class SkyGenToolDialog(QDialog):
         self.organizer.log(1, "SkyGen: 'Generate All Applicable YAMLs' button clicked.")
         if self._validate_inputs():
             config_to_save = {
-                "export_script_path": self.export_script_path,
                 "output_folder_path": self.output_folder_path,
                 "selected_game_version": self.selected_game_version,
                 "selected_output_type": self.selected_output_type,
-                "plugin_disambiguation_map": self.plugin_disambiguation_map
+                "plugin_disambiguation_map": self.plugin_disambiguation_map,
+                # INSERTED: Save determined xEdit name and path before script path
+                "xedit_mo2_name": self.determined_xedit_executable_name,
+                "xedit_exe_path": str(self.determined_xedit_exe_path),
+                "full_export_script_path": str(self.full_export_script_path),
             }
             self._save_config(config_to_save)
             self.generate_all = True
             self.accept()
         else:
-            self.organizer.log(1, "SkyGen: Input validation failed for all generation.")
+            self.organizer.log(1, "SkyGen: Input validation failed for all generation.)")
 
 
     def _get_xedit_categories(self):
@@ -621,7 +638,7 @@ class SkyGenToolDialog(QDialog):
         if mod_internal_name in self.plugin_disambiguation_map:
             saved_plugin = self.plugin_disambiguation_map[mod_internal_name]
             if saved_plugin in self.organizer.pluginList().pluginNames() and \
-               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE: # This line remains as PluginState.ACTIVE for plugins
+               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE:
                 self.organizer.log(0, f"SkyGen: Using saved plugin '{saved_plugin}' for mod '{mo2_mod_display_name}'.")
                 return saved_plugin
             else:
@@ -632,6 +649,10 @@ class SkyGenToolDialog(QDialog):
         potential_plugins = []
 
         for plugin_filename in self.organizer.pluginList().pluginNames():
+            # INSERTED: Skip .pas files
+            if plugin_filename.lower().endswith(".pas"):
+                self.organizer.log(0, f"SkyGen: DEBUG: Skipping .pas file from plugin matching: {plugin_filename}")
+                continue
             plugin_state = self.organizer.pluginList().state(plugin_filename)
             
             plugin_stem = Path(plugin_filename).stem
@@ -653,11 +674,11 @@ class SkyGenToolDialog(QDialog):
         else:
             self.organizer.log(1, f"SkyGen: Multiple plugins found for '{mo2_mod_display_name}'. Showing disambiguation dialog.")
             disambiguation_dialog = PluginDisambiguationDialog(self.organizer, mo2_mod_display_name, potential_plugins, self)
-            if disambiguation_dialog.exec() == QDialog.DialogCode.Accepted: # CORRECTED: Use DialogCode enum
-                selected = disambiguation_dialog.selected_plugin
-                self.plugin_disambiguation_map[mod_internal_name] = selected
-                self.organizer.log(1, f"SkyGen: User selected plugin '{selected}' for mod '{mo2_mod_display_name}'.")
-                return selected
+            if disambiguation_dialog.exec() == QDialog.DialogCode.Accepted:
+                # MODIFIED: Use disambiguation_dialog.selected_plugin directly
+                self.plugin_disambiguation_map[mod_internal_name] = disambiguation_dialog.selected_plugin
+                self.organizer.log(1, f"SkyGen: User selected plugin '{disambiguation_dialog.selected_plugin}' for mod '{mo2_mod_display_name}'.")
+                return disambiguation_dialog.selected_plugin
             else:
                 self.organizer.log(1, f"SkyGen: Plugin selection cancelled for mod '{mo2_mod_display_name}'.")
                 return None
@@ -685,17 +706,7 @@ class SkyGenToolDialog(QDialog):
         xedit_json_layout.addWidget(self.xedit_json_lineEdit)
         xedit_json_layout.addWidget(self.xedit_json_button)
         layout.addLayout(xedit_json_layout)
-
-        export_script_layout = QHBoxLayout()
-        self.export_script_label = QLabel("ExportPluginData.pas Script Path:")
-        self.export_script_lineEdit = QLineEdit(self.export_script_path)
-        self.export_script_button = QPushButton("Browse...")
-        self.export_script_button.clicked.connect(self._browse_export_script)
-        export_script_layout.addWidget(self.export_script_label)
-        export_script_layout.addWidget(self.export_script_lineEdit)
-        export_script_layout.addWidget(self.export_script_button)
-        layout.addLayout(export_script_layout)
-
+            
         output_folder_layout = QHBoxLayout()
         self.output_folder_label = QLabel("Output Folder:")
         self.output_folder_edit = QLineEdit()
@@ -809,7 +820,8 @@ class SkyGenToolDialog(QDialog):
         self.setLayout(layout)
 
 
-    def __init__(self, organizer: mobase.IOrganizer, parent=None):
+    def __init__(self, organizer: mobase.IOrganizer,
+                 parent=None):
         super().__init__(parent)
         self.organizer = organizer
         self.setWindowTitle("SkyGen - SkyPatcher YAML Generator Configuration")
@@ -827,11 +839,13 @@ class SkyGenToolDialog(QDialog):
         self.plugin_disambiguation_map = {}
         self.selected_output_type = "SkyPatcher YAML"
 
-        self.determined_xedit_executable_name = ""
-        self.determined_xedit_exe_path = None
-        self.export_script_path = ""
+        # These are now set in _load_config or determined in _validate_inputs
+        self.determined_xedit_exe_path = Path("") # Initialize to empty path
+        self.determined_xedit_executable_name = "" # Initialize to empty string
+
+        self.full_export_script_path = Path("H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas")
         self.output_folder_path = ""
-        self._load_config()
+        self._load_config() # This will load values from config.json, including xEdit paths
 
         self._init_ui()
 
@@ -846,10 +860,86 @@ class SkyGenToolDialog(QDialog):
 
         self.igpc_path_lineEdit.setText(self.igpc_json_path)
         self.xedit_json_lineEdit.setText(self.pre_exported_xedit_json_path)
-        self.export_script_lineEdit.setText(self.export_script_path)
         self.output_folder_edit.setText(self.output_folder_path)
 
         self._update_ui_for_output_type()
+
+
+# ───────── Plugin Logic ─────────
+class SkyGenPlugin:
+    def __init__(self, config_data, dialog, wrapped_organizer):
+        self.dialog = dialog
+        self.wrapped_organizer = wrapped_organizer
+
+        self.output_folder_path: Path = self._validate_path(config_data.get("output_folder_path"), "Output Folder Path")
+        self.full_export_script_path: Path = self._validate_path(config_data.get("full_export_script_path"), "Export Script Path")
+        
+        # xEdit path and MO2 name are now passed in via config_data, already determined by display()
+        self.xedit_exe_path = Path(config_data.get("xedit_exe_path")) if config_data.get("xedit_exe_path") else None
+        self.xedit_mo2_name = config_data.get("xedit_mo2_name")
+
+        # Final check: if xEdit path is still not valid, raise an error.
+        # The main display() method should have already shown a QMessageBox.
+        if not self.xedit_exe_path or not self.xedit_exe_path.is_file() or not self.xedit_mo2_name:
+            self.wrapped_organizer.log(3, "SkyGen: ERROR: SkyGenPlugin initialized with invalid xEdit path/name. This should have been caught earlier.")
+            raise FileNotFoundError("SkyGenPlugin: xEdit executable or MO2 name is missing/invalid during initialization.")
+
+        self.selected_game_version: str = config_data.get("selected_game_version", "SkyrimSE")
+        self.selected_output_type: str = config_data.get("selected_output_type", "SkyPatcher YAML")
+        self.plugin_disambiguation_map: dict = config_data.get("plugin_disambiguation_map", {})
+
+    def _validate_path(self, raw_path: Optional[str], label: str) -> Path:
+        if not raw_path:
+            self.dialog.showError("Config Error", f"Missing {label} in config.json.")
+            raise ValueError(f"Missing {label}")
+        try:
+            path = Path(raw_path).expanduser()
+            resolved = path.resolve(strict=False)
+            if not resolved.drive:
+                raise ValueError("Path does not contain a drive letter.")
+            return resolved
+        except Exception as e:
+            self.dialog.showError("Path Error", f"Invalid {label}: {raw_path}\nError: {e}")
+            raise
+
+
+    def run_export(self, target_plugin_name: str):
+        try:
+            # Determine if YAML mode is selected
+            is_yaml = self.selected_output_type == "SkyPatcher YAML"
+            if is_yaml:
+                write_xedit_ini_for_skygen(self.xedit_exe_path)
+                write_pas_script_to_xedit(self.full_export_script_path)
+            
+            success = run_xedit_export(
+                wrapped_organizer=self.wrapped_organizer,
+                dialog=self.dialog,
+                xedit_exe_path=self.xedit_exe_path,
+                xedit_mo2_name=self.xedit_mo2_name,
+                xedit_script_path=self.full_export_script_path,
+                output_base_dir=self.output_folder_path,
+                target_plugin_filename=target_plugin_name,
+                game_version=self.selected_game_version,
+                target_mod_display_name=target_plugin_name,
+                target_category=getattr(self.dialog, "selected_category", None)
+            )
+            
+            # Clean up temporary files if YAML export mode
+            if is_yaml:
+                clean_temp_script_and_ini(
+                    xedit_exe_path=self.xedit_exe_path,
+                    script_path=self.full_export_script_path,
+                    wrapped_organizer=self.wrapped_organizer
+                )
+            
+            if not success:
+                self.dialog.showError("Export Failed", "The xEdit export did not succeed.")
+            return success
+
+        except Exception as e:
+            self.dialog.showError("Runtime Error", f"An error occurred while preparing export:\n{str(e)}")
+            self.wrapped_organizer.log(1, f"Exception during export: {e}")
+            return False
 
 
 class SkyGenGeneratorTool(mobase.IPluginTool):
@@ -898,7 +988,36 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
         wrapped_organizer = OrganizerWrapper(self.organizer)
 
-        self.dialog = SkyGenToolDialog(wrapped_organizer)
+        # 1. Load initial config data to pass to get_xedit_exe_path
+        config_file_path = Path(__file__).parent / "config.json"
+        config_data_for_path_lookup = {}
+        if config_file_path.is_file():
+            try:
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    config_data_for_path_lookup = json.load(f)
+            except Exception as e:
+                wrapped_organizer.log(3, f"SkyGen: ERROR: Could not load config.json for initial path lookup: {e}")
+
+        # 2. Determine xEdit path and MO2 name using the centralized logic
+        # Pass a temporary QMessageBox instance for initial critical error messages
+        temp_msg_box = QMessageBox()
+        initial_xedit_exe_path, initial_xedit_mo2_name = get_xedit_exe_path(
+            config_data_for_path_lookup, 
+            wrapped_organizer, 
+            temp_msg_box # Pass a temporary dialog_instance for critical errors
+        )
+
+        # 3. If xEdit path could not be found, show a critical error and exit.
+        if not initial_xedit_exe_path or not initial_xedit_exe_path.is_file() or not initial_xedit_mo2_name: # Added check for initial_xedit_mo2_name
+            QMessageBox.critical(None, "xEdit Not Found", 
+                                 "The xEdit executable could not be located or its MO2 name determined. "
+                                 "Please ensure it's correctly configured as an executable in Mod Organizer 2, "
+                                 "or manually set 'xedit_exe_path' and 'xedit_mo2_name' in the config.json file in the plugin directory.")
+            wrapped_organizer.log(3, "SkyGen: xEdit executable or MO2 name not found during initial plugin display. Aborting.")
+            wrapped_organizer.close_log_file()
+            return
+
+        self.dialog = SkyGenToolDialog(wrapped_organizer) # Initialize dialog without direct path passing
         result = self.dialog.exec()
 
         if result == 1:
@@ -912,28 +1031,20 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             search_keywords = self.dialog.keywords_lineEdit.text().strip()
             broad_category_swap_enabled = self.dialog.broad_category_swap_enabled
             
+            # Retrieve the determined paths from the dialog's state, as they were set during init
             mo2_exec_name_to_use = self.dialog.determined_xedit_executable_name
             xedit_actual_file_path = self.dialog.determined_xedit_exe_path
 
-            export_script_path = self.dialog.export_script_path
-            output_folder_path = self.dialog.output_folder_path # Keep this as it's the dialog's path
-
-            # Define a temporary, simple output directory for testing
-            import tempfile
-            try:
-                temp_test_output_dir = Path(tempfile.gettempdir()) / "SkyGen_Temp_Test"
-                temp_test_output_dir.mkdir(parents=True, exist_ok=True) # Ensure this directory exists
-            except (OSError, PermissionError) as e:
-                wrapped_organizer.log(3, f"SkyGen: Failed to create temp directory, falling back to plugin directory: {e}")
-                temp_test_output_dir = Path(__file__).parent / "temp"
-                temp_test_output_dir.mkdir(parents=True, exist_ok=True)
+            # Retrieve the output folder path as a string from the dialog
+            output_folder_path_str = self.dialog.output_folder_path
 
             selected_output_type = self.dialog.selected_output_type
+            full_export_script_path = self.dialog.full_export_script_path
 
 
             wrapped_organizer.log(1, f"SkyGen: Dialog accepted. Output Type: {selected_output_type}")
             wrapped_organizer.log(1, f"SkyGen: IGPC Path: {igpc_json_path}")
-            wrapped_organizer.log(1, f"SkyGen: Output Folder: {output_folder_path}")
+            wrapped_organizer.log(1, f"SkyGen: Output Folder: {output_folder_path_str}") # Log the string version
 
             igpc_data = None
             if selected_output_type == "BOS INI":
@@ -941,13 +1052,12 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 if not igpc_data:
                     return
 
-
             if selected_output_type == "SkyPatcher YAML":
                 wrapped_organizer.log(1, f"SkyGen: Preparing for SkyPatcher YAML generation.")
 
                 wrapped_organizer.log(1, f"SkyGen: Determined xEdit Executable (MO2 Name): {mo2_exec_name_to_use}")
                 wrapped_organizer.log(1, f"SkyGen: Actual xEdit Executable Path: {xedit_actual_file_path}")
-                wrapped_organizer.log(1, f"SkyGen: Export Script Path: {export_script_path}")
+                wrapped_organizer.log(1, f"SkyGen: Full Export Script Path (from config): {full_export_script_path}")
                 wrapped_organizer.log(1, f"SkyGen: Game Version: {selected_game_version}")
                 wrapped_organizer.log(1, f"SkyGen: Category: {selected_category}")
                 wrapped_organizer.log(1, f"SkyGen: Target Mod: {selected_target_mod_name}")
@@ -966,7 +1076,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         break
                 if not target_mod_internal_name and selected_target_mod_name.lower().endswith(".esm"):
                     if selected_target_mod_name in wrapped_organizer.pluginList().pluginNames():
-                        if wrapped_organizer.pluginList().state(selected_target_mod_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
+                        if wrapped_organizer.pluginList().state(selected_target_mod_name) & mobase.PluginState.ACTIVE:
                             target_mod_internal_name = selected_target_mod_name
                             wrapped_organizer.log(0, f"SkyGen: Target mod is active base game ESM: {target_mod_internal_name}")
 
@@ -992,22 +1102,57 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 else:
                     wrapped_organizer.log(1, f"SkyGen: Determined MO2 executable name for xEdit: '{mo2_exec_name_to_use}' from path stem.")
 
-                    # Use the temporary hardcoded path for the export
-                    actual_xedit_export_path = run_xedit_export(
-                        wrapped_organizer,
-                        xedit_actual_file_path,
-                        Path(export_script_path),
-                        mo2_exec_name_to_use,
-                        target_mod_plugin_name,
-                        selected_game_version,
-                        temp_test_output_dir, # Use temp_test_output_dir here
-                        self.dialog
+                    wrapped_organizer.log(1, f"SkyGen: Using full export script path: {full_export_script_path}")
+
+
+                    # Call run_xedit_export without the -o: argument, ensuring CWD is overwrite
+                    success = run_xedit_export(
+                        wrapped_organizer=wrapped_organizer,
+                        dialog=self.dialog,
+                        xedit_exe_path=xedit_actual_file_path,
+                        xedit_mo2_name=mo2_exec_name_to_use,
+                        xedit_script_path=full_export_script_path,
+                        # Pass output_folder_path_str converted to Path object
+                        output_base_dir=Path(output_folder_path_str),
+                        target_plugin_filename=target_mod_plugin_name,
+                        game_version=selected_game_version,
+                        target_mod_display_name=target_mod_plugin_name,
+                        target_category=selected_category
                     )
-                    if not actual_xedit_export_path:
+
+                    # Now, assume the output file is "Export.json" in the output_folder_path
+                    # The name for actual_xedit_export_path is now generated within run_xedit_export
+                    # Need to retrieve the actual output path from the run_xedit_export success
+                    # For simplicity, if pre_exported_xedit_json_path is not used, and run_xedit_export
+                    # was successful, we assume it generated the file. We would need run_xedit_export
+                    # to return the path if we wanted to dynamically load it here.
+                    # As a workaround, we will assume it's `output_base_dir / f"SkyGen_xEditExport{safe_plugin_name}{timestamp}.json"`
+                    # for the `load_json_data` call below.
+                    # This requires replicating the path naming logic or having run_xedit_export return the path.
+                    # Let's temporarily assume it's "Export.json" for existing functionality, but acknowledge
+                    # this part needs more robust linking if the exact filename is truly dynamic and needed outside.
+                    # For now, if the new path is used, the polling will work inside run_xedit_export.
+                    # But if we need to load it here, we need the exact name.
+                    # Reverting to the old "Export.json" assumption for now for pre-existing loading logic,
+                    # or better, make run_xedit_export return this path.
+                    xedit_exported_json_path_from_run = run_xedit_export(
+                        wrapped_organizer=wrapped_organizer,
+                        dialog=self.dialog,
+                        xedit_exe_path=xedit_actual_file_path,
+                        xedit_mo2_name=mo2_exec_name_to_use,
+                        xedit_script_path=full_export_script_path,
+                        output_base_dir=Path(output_folder_path_str), # Pass converted Path object
+                        target_plugin_filename=target_mod_plugin_name,
+                        game_version=selected_game_version,
+                        target_mod_display_name=target_mod_plugin_name,
+                        target_category=selected_category
+                    )
+
+                    if not xedit_exported_json_path_from_run:
                         self.dialog.showError("xEdit Export Failed", "xEdit data export failed. Check MO2 logs for details.")
                         return
                     
-                    xedit_exported_data = load_json_data(wrapped_organizer, Path(actual_xedit_export_path), "xEdit Exported Data", self.dialog)
+                    xedit_exported_data = load_json_data(wrapped_organizer, xedit_exported_json_path_from_run, "xEdit Exported Data", self.dialog)
                     if xedit_exported_data and isinstance(xedit_exported_data, dict):
                         for item in xedit_exported_data.get("sourceModBaseObjects", []):
                             if item.get("FormID"):
@@ -1017,32 +1162,29 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         return
                     
                     try:
-                        if Path(actual_xedit_export_path).is_file():
-                            Path(actual_xedit_export_path).unlink()
-                            wrapped_organizer.log(1, f"SkyGen: Cleaned up temporary xEdit export file: {actual_xedit_export_path}")
+                        # Clean up the dynamically named export file here in plugin.py
+                        if xedit_exported_json_path_from_run.is_file():
+                            xedit_exported_json_path_from_run.unlink()
+                            wrapped_organizer.log(1, f"SkyGen: Cleaned up temporary xEdit export file: {xedit_exported_json_path_from_run}")
                     except Exception as e:
-                        wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit export file {actual_xedit_export_path}: {e}")
+                        wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit export file {xedit_exported_json_path_from_run}: {e}")
 
                 if generate_all:
                     wrapped_organizer.log(1, "SkyGen: Generating YAMLs for all applicable source mods.")
                     generated_count = 0
                     for mod_internal_name in wrapped_organizer.modList().allMods():
-                        # Changed from mobase.ModState.ENABLED back to mobase.ModState.ACTIVE for compatibility
                         if wrapped_organizer.modList().state(mod_internal_name) & mobase.ModState.ACTIVE:
                             current_source_mo2_name = wrapped_organizer.modList().displayName(mod_internal_name)
                             current_source_plugin_name = None
                             
                             if current_source_mo2_name.lower().endswith(".esm"):
                                 if current_source_mo2_name in wrapped_organizer.pluginList().pluginNames():
-                                    if wrapped_organizer.pluginList().state(current_source_mo2_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
+                                    if wrapped_organizer.pluginList().state(current_source_mo2_name) & mobase.PluginState.ACTIVE:
                                         current_source_plugin_name = current_source_mo2_name
                                         wrapped_organizer.log(0, f"SkyGen: Source mod is active base game ESM: {current_source_plugin_name}")
                             else:
                                 current_source_plugin_name = self.dialog._get_plugin_name_from_mod_name(current_source_mo2_name, mod_internal_name)
                             
-                            if not current_source_plugin_name:
-                                wrapped_organizer.log(1, f"SkyGen: Could not find primary active plugin for source mod '{current_source_mo2_name}'. Skipping.")
-                                continue
 
                             current_source_mod_base_objects_from_xedit = [
                                 item for item in all_exported_target_bases_by_formid.values()
@@ -1060,9 +1202,9 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                                     current_source_mod_base_objects_from_xedit,
                                     all_exported_target_bases_by_formid,
                                     broad_category_swap_enabled,
-                                    search_keywords, # Search keywords are now processed by generate_skypatcher_replacements
+                                    search_keywords,
                                     self.dialog,
-                                    Path(output_folder_path) # Pass original output_folder_path for YAML
+                                    Path(output_folder_path_str) # Convert to Path here
                                 ):
                                     generated_count += 1
                             else:
@@ -1082,7 +1224,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             break
                     if not selected_source_mod_internal_name and selected_source_mod_name.lower().endswith(".esm"):
                         if selected_source_mod_name in wrapped_organizer.pluginList().pluginNames():
-                            if wrapped_organizer.pluginList().state(selected_source_mod_name) & mobase.PluginState.ACTIVE: # This is a plugin check, should be mobase.PluginState.ACTIVE (or ENABLED if PluginState also has ENABLED)
+                            if wrapped_organizer.pluginList().state(selected_source_mod_name) & mobase.PluginState.ACTIVE:
                                 selected_source_mod_internal_name = selected_source_mod_name
                                 wrapped_organizer.log(0, f"SkyGen: Source mod is active base game ESM: {selected_source_mod_internal_name}")
 
@@ -1110,22 +1252,22 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             selected_source_mod_base_objects_from_xedit,
                             all_exported_target_bases_by_formid,
                             broad_category_swap_enabled,
-                            search_keywords, # Search keywords are now processed by generate_skypatcher_replacements
+                            search_keywords,
                             self.dialog,
-                            Path(output_folder_path) # Pass original output_folder_path for YAML
+                            Path(output_folder_path_str) # Convert to Path here
                         ):
                             self.dialog.showInformation("Generation Complete", f"Successfully generated YAML for '{selected_source_mod_name}'. Check SkyPatcher/Configs.")
                         else:
                             self.dialog.showWarning("Generation Skipped", f"No replacements generated for '{selected_source_mod_name}'. YAML not created.")
                     else:
-                        self.dialog.showWarning("No Relevant Bases", f"No relevant base objects found for '{selected_source_mod_name}' in category '{selected_category}'. YAML not created.")
+                        self.dialog.showWarning("No Relevant Bases", f"No relevant base objects found for '{selected_source_mod_name}'. YAML not created for category '{selected_category}'.")
             
             elif selected_output_type == "BOS INI":
                 wrapped_organizer.log(1, f"SkyGen: Generating BOS INI files.")
                 if generate_bos_ini_files(
                     wrapped_organizer,
                     igpc_data,
-                    Path(output_folder_path),
+                    Path(output_folder_path_str), # Convert to Path here
                     self.dialog
                 ):
                     self.dialog.showInformation("Generation Complete", f"Successfully generated BOS INI files. Check output folder.")
