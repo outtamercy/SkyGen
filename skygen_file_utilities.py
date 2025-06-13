@@ -318,7 +318,6 @@ def write_xedit_ini_for_skygen(xedit_exe_path: Path, wrapped_organizer: mobase.I
 
 def write_pas_script_to_xedit(script_path: Path, wrapped_organizer) -> bool: # ADD -> bool
     wrapped_organizer.log(1, f"SkyGen: ENTERING write_pas_script_to_xedit for path: {script_path}")
-    pas_content = r"""unit ExportPluginData;
 
 uses xEditAPI, Classes, SysUtils;
 
