@@ -232,92 +232,12 @@ def sanitize_path_for_pascal(path_str: str) -> str:
     return sanitized
 
 
-def write_xedit_ini_for_skygen(xedit_exe_path: Path, wrapped_organizer: mobase.IOrganizer, dialog_instance):
+def write_pas_script_to_xedit(script_path: Path, wrapped_organizer: mobase.IOrganizer) -> bool:
     """
-    Writes a temporary INI file for xEdit to ensure it loads necessary plugins
-    and uses the correct game mode for the export script.
+    Writes the Pascal script content to the specified path within xEdit's Edit Scripts folder.
     """
-    if not xedit_exe_path:
-        wrapped_organizer.log(3, "SkyGen: ERROR: xEdit executable path is not provided to write INI.")
-        return
-
-    ini_path = xedit_exe_path.with_suffix('.ini')
-    wrapped_organizer.log(1, f"SkyGen: Attempting to write temporary xEdit INI to: {ini_path}")
-
-    # Map game names to their full display names (for INI section) and short arguments (for GameMode setting)
-    game_name_map = {
-        "SkyrimSE": "Skyrim Special Edition",
-        "SkyrimVR": "Skyrim VR",
-        "Fallout4": "Fallout4",
-        "FalloutNV": "FalloutNV",
-        "Oblivion": "Oblivion",
-        "Skyrim": "Skyrim"  # For TES5Edit
-    }
-    
-    game_mode_arg_map = {
-        "Skyrim Special Edition": "SSE",
-        "Skyrim VR": "TES5VR",
-        "Fallout4": "FO4",
-        "FalloutNV": "FNV",
-        "Oblivion": "TES4",
-        "Skyrim": "TES5"
-    }
-
-    # Determine the game name from the active managed game
-    detected_game_name_str = "Skyrim Special Edition"  # Default if detection fails
-    if wrapped_organizer.managedGame():
-        actual_game = wrapped_organizer.managedGame()
-        if hasattr(actual_game, 'gameName'):  # Check for gameName()
-            detected_game_name_str = actual_game.gameName()  # Use gameName()
-            wrapped_organizer.log(0, f"SkyGen: DEBUG: Detected game name from managedGame(): {detected_game_name_str}")
-        else:
-            wrapped_organizer.log(2, f"SkyGen: WARNING: managedGame() object has no attribute 'gameName'. Using default game name for INI: {detected_game_name_str}")
-    else:
-        wrapped_organizer.log(2, f"SkyGen: WARNING: managedGame() object is None. Using default game name for INI: {detected_game_name_str}")
-
-    import configparser
-    config = configparser.ConfigParser()
-    config.optionxform = str  # Preserve case for options
-
-    section_name = f"{Path(xedit_exe_path.name).stem} {detected_game_name_str}"  # e.g., "SSEEdit Skyrim Special Edition"
-    
-    # Ensure section exists
-    if section_name not in config:
-        config[section_name] = {}
-
-    config[section_name]['AllowMasterFileEdit'] = 'TRUE'  # Required for script to modify masters if needed
-    config[section_name]['Expert'] = 'TRUE'  # Usually enables more features/options
-    config[section_name]['AllowMultipleInstances'] = 'TRUE'  # Important for automation
-
-    # Set GameMode based on the detected game name
-    determined_game_mode_arg = game_mode_arg_map.get(detected_game_name_str, "SSE")  # Default to SSE if not found in map
-    if determined_game_mode_arg:
-        config[section_name]['GameMode'] = determined_game_mode_arg
-        wrapped_organizer.log(1, f"SkyGen: Set INI GameMode to: {determined_game_mode_arg}")
-    else:
-        wrapped_organizer.log(2, f"SkyGen: Could not map detected game name '{detected_game_name_str}' to specific GameMode INI argument. Using default if any, or none.")
-
-    # Add other general INI settings as needed
-    config[section_name]['RememberPluginSelection'] = 'False'
-    config[section_name]['NoUpdate'] = 'True'
-    config[section_name]['NoBackup'] = 'True'
-    config[section_name]['BackupPrompt'] = 'False'
-    config[section_name]['SkipHeaderValidation'] = 'True'
-    config[section_name]['NoCRLF'] = 'True'
-    # config[section_name]['Portable'] = 'True'  # <-- COMMENT OUT THIS LINE
-    config[section_name]['LimitRecords'] = 'False'
-    config[section_name]['ShowSplashScreen'] = 'False'
-
-    try:
-        with open(ini_path, 'w', encoding='utf-8') as configfile:
-            config.write(configfile)
-        wrapped_organizer.log(1, f"SkyGen: Successfully wrote temporary xEdit INI to: {ini_path}")
-    except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write xEdit INI to {ini_path}: {e}\n{traceback.format_exc()}")
-        dialog_instance.showError("INI Write Error", f"SkyGen: Failed to write temporary xEdit INI file to:\n{ini_path}\n\nError: {e}")
-
-def write_pas_script_to_xedit(script_path: Path, wrapped_organizer) -> bool: # ADD -> bool
-    wrapped_organizer.log(1, f"SkyGen: ENTERING write_pas_script_to_xedit for path: {script_path}")
+    wrapped_organizer.log(1, f"SkyGen: Attempting to write Pascal script to: {script_path}")
+    pas_content = r"""unit ExportPluginData;
 
 uses xEditAPI, Classes, SysUtils;
 
@@ -340,27 +260,36 @@ begin
   for i := 0 to slParams.Count - 1 do begin
     if Pos('-D:TargetPlugin="', slParams[i]) = 1 then
       targetPluginName := Copy(slParams[i], 19, Length(slParams[i]) - 19);
-    if Pos('-D:TargetCategory="', slParams[i]) = 1 then
-      targetCategory := Copy(slParams[i], 21, Length(slParams[i]) - 21);
-    if Pos('-o:"', slParams[i]) = 1 then begin
+    if Pos('-D:TargetCategory="', slParams[i]) = 1 then // CORRECTED: No space, adjust index
+      targetCategory := Copy(slParams[i], 20, Length(slParams[i]) - 20);
+    if Pos('-o:"', slParams[i]) = 1 then // CORRECTED: No space
       outputPath := Copy(slParams[i], 5, Length(slParams[i]) - 5);
-      // NEW FIX: Explicitly strip trailing quote from outputPath
-      if RightStr(outputPath, 1) = '"' then
-        Delete(outputPath, Length(outputPath), 1);
-    end;
   end;
+
+  // NEW FIX: Explicitly strip trailing quote from outputPath
+  if RightStr(outputPath, 1) = '"' then
+    Delete(outputPath, Length(outputPath), 1);
 
   if (targetPluginName = '') or (targetCategory = '') or (outputPath = '') then begin
     AddMessage('ERROR: Missing parameters. Required: -D:TargetPlugin, -D:TargetCategory, and -o.');
     AddMessage('DEBUG: targetPluginName: "' + targetPluginName + '"');
     AddMessage('DEBUG: targetCategory: "' + targetCategory + '"');
     AddMessage('DEBUG: outputPath (parsed): "' + outputPath + '"');
-    Result := 1;
+    Result := 1; // Indicate failure
     Exit;
   end;
 
+  // --- NEW DEBUGGING LINES IN PASCAL SCRIPT ---
+  AddMessage('DEBUG PASCAL: Raw outputPath received: "' + outputPath + '"');
   outputDir := ExtractFilePath(outputPath);
-  AddMessage('DEBUG: outputDir (extracted): "' + outputDir + '"');
+  AddMessage('DEBUG PASCAL: Extracted outputDir: "' + outputDir + '"');
+
+  if outputDir = '' then begin
+    AddMessage('ERROR PASCAL: outputDir is unexpectedly empty before directory creation!');
+    Result := 1;
+    Exit;
+  end;
+  // --- END NEW DEBUGGING LINES ---
 
   if not DirectoryExists(outputDir) then begin
     AddMessage('DEBUG: Directory does not exist, attempting to create: "' + outputDir + '"');
@@ -391,7 +320,6 @@ begin
     edid := GetElementEditValues(rec, 'EDID');
     name := GetElementEditValues(rec, 'FULL');
     source := GetFileName(GetFile(rec));
-
     slOutput.Add('  {');
     slOutput.Add('    "formID": "0x' + formID + '",');
     slOutput.Add('    "edid": "' + StringReplace(edid, '"', '', [rfReplaceAll]) + '",');
@@ -418,7 +346,7 @@ begin
   end;
 
   AddMessage('✅ Export completed successfully.');
-  Result := 0;
+  Result := 0; // Indicate success
 end;
 
 function Finalize: integer;
@@ -436,11 +364,11 @@ end.
         with script_path.open("w", encoding="utf-8") as f:
             f.write(pas_content.strip())
         wrapped_organizer.log(1, f"SkyGen: Successfully wrote Pascal script to: {script_path}")
-        return True # ADD THIS LINE
+        return True
     except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write ExportPluginData.pas: {e}\n{traceback.format_exc()}") # Added traceback
-        return False # ADD THIS LINE
-
+        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write ExportPluginData.pas: {e}\n{traceback.format_exc()}")
+        return False
+    
 
 def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_organizer):
     ini_path = xedit_exe_path.with_suffix(".ini")
@@ -671,32 +599,14 @@ def run_xedit_export(
             dialog.showError("xEdit Not Found", f"The xEdit executable was not found at:\n{xedit_exe_path}")
             return None # Changed from False to None
 
-        # --- Create temporary xEdit INI file for automation ---
-        write_xedit_ini_for_skygen(xedit_exe_path, wrapped_organizer, dialog) # Pass wrapped_organizer and dialog
+        # --- No longer creating temporary xEdit INI file for automation ---
+        # The write_xedit_ini_for_skygen function is being removed as it's no longer relevant.
         
-        # Ensure standard xEdit subdirectories exist to prevent early initialization errors
-        xedit_base_dir = xedit_exe_path.parent
-        xedit_subdirs_to_create = [
-            xedit_base_dir / "Cache",
-            xedit_base_dir / "Data",
-            xedit_base_dir / "Logs",
-            xedit_base_dir / "Backups",
-            xedit_base_dir / "Temp"
-        ]
-        for subdir in xedit_subdirs_to_create:
-            try:
-                subdir.mkdir(parents=True, exist_ok=True)
-                wrapped_organizer.log(1, f"SkyGen: Ensured xEdit subdirectory exists: {subdir}")
-            except Exception as e:
-                wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to create xEdit subdirectory {subdir}: {e}\n{traceback.format_exc()}")
-                dialog.showError("Directory Creation Error", f"SkyGen: Failed to create a critical xEdit subdirectory:\n{subdir}\n\nError: {e}\n\nThis usually indicates a permissions issue. Please try running Mod Organizer 2 as administrator.")
-                return None # Crucial: Stop execution if a critical directory cannot be created
-
         # Build output paths for xEdit's script and main log
         safe_plugin_name = sanitize_path_for_pascal(target_plugin_filename).replace('.', '')
         timestamp = str(int(time.time()))
         # Define the actual output JSON path for the Pascal script
-        output_path = output_base_dir / f"SkyGen_xEditExport{safe_plugin_name}{timestamp}.json"
+        output_path = output_base_dir / f"SkyGen_xEditExport_{safe_plugin_name}_{timestamp}.json" # Added underscore for readability
         expected_output_path = output_path  # Define it here for consistency with polling message
                 
         # Define xEdit's main log path
@@ -719,46 +629,54 @@ def run_xedit_export(
             dialog.showError("Directory Creation Error", f"Could not ensure output/backup directories exist:\n{output_base_dir}\n\n{e}")
             return None # Changed from False to None
 
-        # Command arguments
+        # Command arguments (ABSOLUTE MINIMAL FOR DIAGNOSIS)
         xedit_args = []
 
+        # Only include the game mode if necessary for xEdit to start
         game_mode_arg = {"SkyrimSE": "-sse", "SkyrimVR": "-tes5vr"}.get(game_version)
         if game_mode_arg:
             xedit_args.append(game_mode_arg)
         else:
             wrapped_organizer.log(2, f"No game mode flag for {game_version} -- launching without explicit game mode.")
 
+        # Re-adding script-related and output-related arguments
         xedit_args.append(f'-script:"{os.path.normpath(str(xedit_script_path))}"')
-        xedit_args.append(f'-o:"{output_path}"') # Pass the output path for the Pascal script
-        xedit_args.append(f'-debuglog:"{pascal_debug_log_path}"') # Kept this for script-specific debug logs
-        xedit_args.append(f'-L:"{log_path}"') # Explicitly set xEdit's main log path
+        xedit_args.append(f'-o:"{output_path}"')
+        xedit_args.append(f'-debuglog:"{pascal_debug_log_path}"')
+        xedit_args.append(f'-L:"{log_path}"')
 
         xedit_args.append(f'-plugin:"{target_plugin_filename}"')
         xedit_args.append(f'-D:TargetPlugin="{target_mod_display_name}"')
         xedit_args.append(f'-D:TargetCategory="{target_category}"')
 
+        # Essential xEdit launch flags
         xedit_args.extend([
+            '-Portable', 
             '-IKnowWhatImDoing',
-            '-NoAutoUpdate',
-            '-NoAutoBackup',
-            '-autoload',
-            '-nomenus',
-            '-exit'
+            '-NoUpdate',
+            '-NoBackup',
+            '-NoSplash', # Directly disables splash screen
+            '-autoload', # Auto-load plugins
+            '-nomenus',  # Don't show UI
+            '-exit'      # Quits after script finishes
         ])
 
-        # Determine the CWD for xEdit
-        # Since SSEEdit.ini sets Portable=True, xEdit expects its CWD to be its own directory.
-        cwd = str(xedit_exe_path.parent) # Force CWD to xEdit's own directory
+        # Ensure CWD is xEdit's own directory
+        cwd = str(xedit_exe_path.parent) 
         wrapped_organizer.log(1, f"SkyGen: Setting xEdit Working Directory (CWD) to xEdit executable directory: {cwd}")
-
+                
+        wrapped_organizer.log(1, f"xEdit Final Args: {' '.join(xedit_args)}") # Added logging for final arguments
         wrapped_organizer.log(1, f"SkyGen: Calling xEdit with args: {xedit_args} and CWD: {cwd}")
 
         # Use the MO2 display name for the executable to ensure MO2 launches it correctly
         exe_to_launch = xedit_mo2_name # Using the MO2 configured name
 
-        # This was the line we added for debugging, you can keep it or remove it after this test
         wrapped_organizer.log(1, f"SkyGen: Attempting to launch xEdit with MO2 registered name: '{exe_to_launch}'")
         
+        # --- NEW: Added delay for VFS to catch up ---
+        time.sleep(3) # Wait for 3 seconds
+        # --- End new delay ---
+
         result_handle = wrapped_organizer.startApplication(
             executableName=exe_to_launch,
             arguments=xedit_args,
@@ -784,6 +702,8 @@ def run_xedit_export(
             dialog.showError("Timeout", f"xEdit did not produce the expected output at {expected_output_path} in time ({MAX_POLL_TIME}s). Check xEdit's generated logs.")
         
         # --- Clean up temporary xEdit INI file ---
+        # The temporary INI is no longer created, so no cleanup is needed here.
+        # However, the previous cleanup block is kept for robustness in case of old files.
         try:
             xedit_ini_path = xedit_exe_path.with_suffix('.ini')
             if xedit_ini_path.exists():

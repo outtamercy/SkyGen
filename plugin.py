@@ -17,7 +17,6 @@ from .skygen_file_utilities import (
         generate_bos_ini_files,
         get_xedit_path_from_ini,
         get_xedit_exe_path,
-        write_xedit_ini_for_skygen,
         write_pas_script_to_xedit,
         clean_temp_script_and_ini
     )

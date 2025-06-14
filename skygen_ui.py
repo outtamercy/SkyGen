@@ -13,7 +13,6 @@ from typing import Optional
 from .skygen_file_utilities import (
     load_json_data,
     get_xedit_exe_path,
-    write_xedit_ini_for_skygen,
     write_pas_script_to_xedit,
     clean_temp_script_and_ini
 )
@@ -486,10 +485,6 @@ class SkyGenToolDialog(QDialog):
             is_yaml = (self.selected_output_type == "SkyPatcher YAML")
             if is_yaml:
                 self.organizer.log(1, "SkyGen: SkyPatcher YAML selected. Attempting to write xEdit INI and Pascal script.")
-                
-                # Write INI file
-                # The issue is here: write_xedit_ini_for_skygen needs the dialog_instance
-                write_xedit_ini_for_skygen(self.determined_xedit_exe_path, self.organizer, self) # Pass 'self' as dialog_instance
                 
                 # Write Pascal script and check for success
                 if not write_pas_script_to_xedit(self.full_export_script_path, self.organizer):
