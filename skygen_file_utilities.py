@@ -371,19 +371,15 @@ end.
     
 
 def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_organizer):
-    ini_path = xedit_exe_path.with_suffix(".ini")
-    try:
-        if ini_path.exists():
-            ini_path.unlink()
-            wrapped_organizer.log(1, f"SkyGen: Deleted temporary INI: {ini_path}")
-    except Exception as e:
-        wrapped_organizer.log(2, f"SkyGen: Failed to delete INI: {e}")
+    """
+    This function deletes the temporary .pas script.
+    """
     try:
         if script_path.exists():
             script_path.unlink()
             wrapped_organizer.log(1, f"SkyGen: Deleted temporary .pas script: {script_path}")
     except Exception as e:
-        wrapped_organizer.log(2, f"SkyGen: Failed to delete .pas: {e}")
+        wrapped_organizer.log(2, f"SkyGen: Failed to delete .pas script '{script_path}': {e}")
 
 
 def generate_and_write_skypatcher_yaml(organizer: mobase.IOrganizer, category: str,
@@ -600,7 +596,6 @@ def run_xedit_export(
             return None # Changed from False to None
 
         # --- No longer creating temporary xEdit INI file for automation ---
-        # The write_xedit_ini_for_skygen function is being removed as it's no longer relevant.
         
         # Build output paths for xEdit's script and main log
         safe_plugin_name = sanitize_path_for_pascal(target_plugin_filename).replace('.', '')
