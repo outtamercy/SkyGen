@@ -18,13 +18,13 @@ MAX_POLL_TIME = 60 # Maximum seconds to wait for xEdit export to complete (incre
 
 # --- Utility Functions (Global helpers) ---
 
-def load_json_data(organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> dict | None:
+def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> dict | None:
     """
     Loads JSON data from a specified file path.
-    Requires organizer for logging and dialog_instance for showing UI errors.
+    Requires wrapped_organizer for logging and dialog_instance for showing UI errors.
     """
     if not file_path or not file_path.is_file():
-        organizer.log(2, f"SkyGen: WARNING: {description} file path is invalid or file not found at: {file_path}.") # WARNING
+        wrapped_organizer.log(2, f"SkyGen: WARNING: {description} file path is invalid or file not found at: {file_path}.")
         if dialog_instance: # Only show error if dialog_instance is provided
             dialog_instance.showError("File Not Found", f"{description} file not found at the specified path: {file_path}.")
         return None
@@ -32,34 +32,34 @@ def load_json_data(organizer: Any, file_path: Path, description: str, dialog_ins
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            organizer.log(1, f"SkyGen: Successfully loaded {description} from: {file_path}") # INFO
+            wrapped_organizer.log(1, f"SkyGen: Successfully loaded {description} from: {file_path}")
             return data
-    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e: # Added UnicodeDecodeError
-        organizer.log(3, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}") # ERROR
+    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        wrapped_organizer.log(3, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}")
         if dialog_instance: # Only show error if dialog_instance is provided
             dialog_instance.showError("File Read Error", f"Error loading {description} from {file_path}:\n{e}")
         return None
 
 
-def get_xedit_path_from_ini(organizer: Any) -> tuple[Optional[Path], Optional[str]]:
+def get_xedit_path_from_ini(wrapped_organizer: Any) -> tuple[Optional[Path], Optional[str]]:
     """
     Parses ModOrganizer.ini to find the path and display name of the registered xEdit executable.
     Does NOT require a dialog instance for UI messages; only logs.
     """
-    mo2_ini_path = Path(organizer.basePath()) / "ModOrganizer.ini"
+    mo2_ini_path = Path(wrapped_organizer.basePath()) / "ModOrganizer.ini"
     if not mo2_ini_path.is_file():
-        organizer.log(3, f"SkyGen: CRITICAL: ModOrganizer.ini not found at expected path: {mo2_ini_path}")
+        wrapped_organizer.log(3, f"SkyGen: CRITICAL: ModOrganizer.ini not found at expected path: {mo2_ini_path}")
         return None, None
 
     config = configparser.ConfigParser()
     try:
         config.read(mo2_ini_path, encoding='utf-8')
     except Exception as e:
-        organizer.log(3, f"SkyGen: CRITICAL: Failed to parse ModOrganizer.ini: {e}")
+        wrapped_organizer.log(3, f"SkyGen: CRITICAL: Failed to parse ModOrganizer.ini: {e}")
         return None, None
 
     if 'CustomExecutables' not in config:
-        organizer.log(2, "SkyGen: WARNING: [CustomExecutables] section not found in ModOrganizer.ini.")
+        wrapped_organizer.log(2, "SkyGen: WARNING: [CustomExecutables] section not found in ModOrganizer.ini.")
         return None, None
 
     xedit_exe_path = None
@@ -74,49 +74,47 @@ def get_xedit_path_from_ini(organizer: Any) -> tuple[Optional[Path], Optional[st
                 try:
                     name_key = key.replace('binary', 'name')
                     xedit_mo2_name = config.get('CustomExecutables', name_key).strip().strip('"')
-                    organizer.log(1, f"SkyGen: Successfully parsed ModOrganizer.ini for xEdit. Path: {xedit_exe_path}, Name: {xedit_mo2_name}")
+                    wrapped_organizer.log(1, f"SkyGen: Successfully parsed ModOrganizer.ini for xEdit. Path: {xedit_exe_path}, Name: {xedit_mo2_name}")
                     return xedit_exe_path, xedit_mo2_name
                 except configparser.NoOptionError:
-                    organizer.log(2, f"SkyGen: WARNING: Could not find display name for xEdit binary: {exe_path}. Skipping.")
+                    wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find display name for xEdit binary: {exe_path}. Skipping.")
     
-    organizer.log(2, "SkyGen: WARNING: No xEdit executable found in ModOrganizer.ini [CustomExecutables].")
+    wrapped_organizer.log(2, "SkyGen: WARNING: No xEdit executable found in ModOrganizer.ini [CustomExecutables].")
     return None, None
 
 
 def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instance: Any) -> tuple[Optional[Path], Optional[str]]:
     """
     Determines the xEdit executable path and its MO2 registered name.
-    Prioritizes config.json, then MO2 registered executables.
+    Prioritizes config.json, then ModOrganizer.ini parsing.
     """
-    xedit_exe_path_str = config_data.get("xedit_exe_path")
-    xedit_mo2_name = config_data.get("xedit_mo2_name")
+    xedit_exe_path: Optional[Path] = None
+    xedit_mo2_name: Optional[str] = None
     
-    # 1. Try to get from config.json first
-    if xedit_exe_path_str and xedit_mo2_name:
-        configured_path = Path(xedit_exe_path_str)
+    # --- Attempt 1: Try to get from config.json first (for subsequent runs) ---
+    xedit_exe_path_str_config = config_data.get("xedit_exe_path")
+    xedit_mo2_name_config = config_data.get("xedit_mo2_name")
+    
+    if xedit_exe_path_str_config and xedit_mo2_name_config:
+        configured_path = Path(xedit_exe_path_str_config)
         if configured_path.is_file():
-            wrapped_organizer.log(0, f"SkyGen: DEBUG: Using xEdit path from config.json: {configured_path} (MO2 name: {xedit_mo2_name})")
-            return configured_path, xedit_mo2_name
+            wrapped_organizer.log(0, f"SkyGen: DEBUG: Using xEdit path from config.json: {configured_path} (MO2 name: {xedit_mo2_name_config})")
+            return configured_path, xedit_mo2_name_config
         else:
-            wrapped_organizer.log(2, f"SkyGen: WARNING: Configured xEdit path '{configured_path}' not found. Attempting auto-detection.")
+            wrapped_organizer.log(2, f"SkyGen: WARNING: Configured xEdit path '{configured_path}' in config.json not found. Attempting auto-detection via INI.")
 
-    # 2. Auto-detect from MO2's registered executables
-    executables = wrapped_organizer.getExecutables()
-    for exe_info in executables:
-        # Check for common xEdit executable names (case-insensitive)
-        if re.match(r"^(sse|fallout|skyrim|oblivion|tes5|fnv)?edit\.exe$", Path(exe_info.binary()).name, re.IGNORECASE):
-            xedit_path = Path(exe_info.binary())
-            if xedit_path.is_file():
-                wrapped_organizer.log(0, f"SkyGen: DEBUG: Auto-detected xEdit executable: {xedit_path} (MO2 name: {exe_info.name()})")
-                return xedit_path, exe_info.name()
-            else:
-                wrapped_organizer.log(2, f"SkyGen: WARNING: Detected xEdit executable '{xedit_path}' is not a file. Skipping.")
-
-    wrapped_organizer.log(3, "SkyGen: CRITICAL: xEdit executable not found via config.json or MO2 auto-detection. Please configure it in config.json or MO2.")
-    return None, None
+    # --- Attempt 2: Auto-detect by parsing ModOrganizer.ini (reliable for first run/missing getExecutables) ---
+    xedit_exe_path_ini, xedit_mo2_name_ini = get_xedit_path_from_ini(wrapped_organizer)
+    if xedit_exe_path_ini and xedit_mo2_name_ini:
+        wrapped_organizer.log(0, f"SkyGen: DEBUG: Auto-detected xEdit from ModOrganizer.ini: {xedit_exe_path_ini} (MO2 name: {xedit_mo2_name_ini})")
+        return xedit_exe_path_ini, xedit_mo2_name_ini
+    else:
+        wrapped_organizer.log(3, "SkyGen: CRITICAL: xEdit executable not found via config.json or ModOrganizer.ini parsing. Please configure it manually in config.json.")
+        # We explicitly do NOT attempt getExecutables() here as it causes AttributeError in MO2 2.5.2
+        return None, None
 
 
-def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) -> Optional[Path]: # <--- UPDATED SIGNATURE
+def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) -> Optional[Path]:
     """
     Attempts to determine the game root path.
     Prioritizes ModOrganizer.ini, then falls back to config_data.
@@ -299,7 +297,7 @@ begin
             if Pos(Keyword, EditorID) > 0 then // Case-sensitive check
             begin
               MatchFound := True;
-              Break; end;
+              Break;
             end;
           end;
         end;
@@ -395,29 +393,6 @@ end.
         raise # Re-raise to halt execution if script write fails
 
 
-# This function is removed as its content is now hardcoded in write_pas_script_to_xedit
-# def generate_export_script_content(target_plugin_filename: str, output_base_dir: Path, target_category: Optional[str], broad_category_swap_enabled: bool, keywords: str) -> str:
-#     """
-#     Generates the Pascal script content for xEdit to export plugin data.
-#     Now includes parameters for category filtering, broad category swap, and keywords.
-#     """
-#     output_path = output_base_dir / "SkyGen_xEdit_Export.json"
-#     keywords_list = [k.strip() for k in keywords.split(',') if k.strip()]
-#     keywords_str = ', '.join([f"'{k}'" for k in keywords_list]) # Format for Pascal array of strings
-
-#     # Pascal script content, updated for parameters
-#     pascal_script = f"""
-# ... (original pascal script content) ...
-#     """
-#     return pascal_script.format(
-#         target_plugin_filename=target_plugin_filename,
-#         output_path=output_path.as_posix().replace('\\', '/'), # Use as_posix for consistent paths in script
-#         target_category=target_category if target_category else '', # Pass empty string if None
-#         broad_category_swap_enabled=str(broad_category_swap_enabled).lower(), # 'true' or 'false'
-#         keywords=keywords_str # Pass the formatted keywords string
-#     )
-
-
 def run_xedit_export(
     wrapped_organizer: Any,
     dialog: Any,
@@ -444,7 +419,7 @@ def run_xedit_export(
     
     # We write the script content to xedit_script_path
     try:
-        write_pas_script_to_xedit(xedit_script_path, wrapped_organizer) # Updated call
+        write_pas_script_to_xedit(xedit_script_path, wrapped_organizer)
     except Exception as e:
         dialog.showError("Script Write Error", f"Failed to write xEdit Pascal script:\n{e}")
         return None
@@ -741,4 +716,3 @@ def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_o
             wrapped_organizer.log(1, f"SkyGen: Deleted temporary xEdit INI: {xedit_ini_path}")
         except Exception as e:
             wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit INI '{xedit_ini_path}': {e}")
-
