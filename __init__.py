@@ -2,7 +2,7 @@
 
 import mobase
 
-from .plugin import SkyGenGeneratorTool
+from .plugin import SkyGenPlugin # Changed SkyGenGeneratorTool to SkyGenPlugin
 
 def createPlugin() -> mobase.IPluginTool:
-    return SkyGenGeneratorTool()
+    return SkyGenPlugin() # Changed SkyGenGeneratorTool to SkyGenPlugin

@@ -1,9 +1,9 @@
 {
+    "igpc_json_path": "",
+    "pre_exported_xedit_json_path": "",
+    "full_export_script_path": "H:\\Truth Special Edition\\tools\\SSEEdit\\Edit Scripts\\ExportPluginData.pas",
     "output_folder_path": "H:/Truth Special Edition/overwrite",
     "selected_game_version": "SkyrimSE",
     "selected_output_type": "SkyPatcher YAML",
-    "plugin_disambiguation_map": {},
-    "xedit_mo2_name": "SSEEdit",
-    "xedit_exe_path": "H:\\Truth Special Edition\\tools\\SSEEdit\\SSEEdit.exe",
-    "full_export_script_path": "H:\\Truth Special Edition\\tools\\SSEEdit\\Edit Scripts\\ExportPluginData.pas"
+    "plugin_disambiguation_map": {}
 }

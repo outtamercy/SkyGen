@@ -7,14 +7,16 @@ import configparser # Although not directly used in the moved classes, it's a co
 import re           # Although not directly used in the moved classes, it's a common dependency for related functions
 import time
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Any
+import traceback # Import traceback for error logging
 
 # Import utility functions used by UI classes
 from .skygen_file_utilities import (
     load_json_data,
     get_xedit_exe_path,
     write_pas_script_to_xedit,
-    clean_temp_script_and_ini
+    clean_temp_script_and_ini,
+    get_game_root_from_general_ini # Added to ensure it's imported if needed by UI
 )
 
 # Ensure necessary PyQt6 modules are imported correctly or dummy classes are defined
@@ -35,8 +37,8 @@ try:
         QFileDialog,
         QCheckBox,
         QRadioButton,
-        QListWidget,
-        QListWidgetItem
+        QListWidget, # <--- ADDED
+        QListWidgetItem # <--- ADDED
     )
     from PyQt6.QtCore import Qt, QCoreApplication
     from PyQt6.QtGui import QIcon
@@ -46,832 +48,836 @@ except ImportError:
     class QDialog:
         def __init__(self, *args, **kwargs): pass
         def exec(self): return 0
-        def setLayout(self, *args, **kwargs): pass
         def reject(self): pass
-        def show(self): pass
+        def accept(self): pass
         def close(self): pass
-    class QVBoxLayout:
-        def __init__(self, *args, **kwargs): pass
-        def addLayout(self, *args, **kwargs): pass
-        def addWidget(self, *args, **kwargs): pass
-    class QHBoxLayout:
-        def __init__(self, *args, **kwargs): pass
-        def addWidget(self, *args, **kwargs): pass
-    class QLabel:
-        def __init__(self, *args, **kwargs): pass
-        def setVisible(self, *args, **kwargs): pass
-    class QLineEdit:
-        def __init__(self, *args, **kwargs): pass
-        def setText(self, *args, **kwargs): pass
+        def show(self): pass
+        def hide(self): pass
+        def showInformation(self, title, message): print(f"INFO: {title}: {message}")
+        def showWarning(self, title, message): print(f"WARN: {title}: {message}")
+        def showError(self, title, message): print(f"ERROR: {title}: {message}")
+        def setText(self, text): pass
         def text(self): return ""
-        def setPlaceholderText(self, *args, **kwargs): pass
-        def setReadOnly(self, *args, **kwargs): pass
-        def setVisible(self, *args, **kwargs): pass
-    class QPushButton:
-        def __init__(self, *args, **kwargs): pass
-        def clicked(self): return type('obj', (object,), {'connect': lambda *args: None})()
-        def setText(self, *args, **kwargs): pass
-        def setVisible(self, *args, **kwargs): pass
-    class QComboBox:
-        def __init__(self, *args, **kwargs): pass
-        def addItems(self, *args, **kwargs): pass
-        def currentIndexChanged(self): return type('obj', (object,), {'connect': lambda *args: None})()
-        def currentText(self): return ""
-        def itemText(self, index): return ""
-        def addItem(self, *args, **kwargs): pass
-        def setVisible(self, *args, **kwargs): pass
-    class QMessageBox:
-        @staticmethod
-        def critical(*args, **kwargs): print(f"CRITICAL: {args[2] if len(args) > 2 else 'No message'}")
-        @staticmethod
-        def warning(*args, **kwargs): print(f"WARNING: {args[2] if len(args) > 2 else 'No message'}")
-        @staticmethod
-        def information(*args, **kwargs): print(f"INFO: {args[2] if len(args) > 2 else 'No message'}")
-    class QButtonGroup:
-        def __init__(self, *args, **kwargs): pass
-        def addButton(self, *args, **kwargs): pass
-    class QWidget:
-        def __init__(self, *args, **kwargs): pass
-        def setLayout(self, *args, **kwargs): pass
-    class QSizePolicy:
-        def __init__(self, *args, **kwargs): pass
-    class QFileDialog:
-        @staticmethod
-        def getOpenFileName(*args, **kwargs): return "", ""
-        @staticmethod
-        def getExistingDirectory(*args, **kwargs): return ""
-        def setFileMode(self, *args, **kwargs): pass
-        def setOption(self, *args, **kwargs): pass
-        def setDirectory(self, *args, **kwargs): pass
-        def selectedFiles(self): return []
-    class Qt:
-        class CheckState:
-            Checked = type('obj', (object,), {'value': 2})()
-            Unchecked = type('obj', (object,), {'value': 0})()
-        class DialogCode:
-            Accepted = 1
-            Rejected = 0
-        AlignLeft = 0
-        AlignTop = 0
-    class QIcon:
-        def __init__(self, *args, **kwargs): pass
+
     class QApplication:
         def __init__(self, *args, **kwargs): pass
+        def instance(self): return None
         def exec(self): return 0
-        def exit(self, *args, **kwargs): pass
-    class QRadioButton:
+    class QVBoxLayout:
         def __init__(self, *args, **kwargs): pass
-        def setChecked(self, *args, **kwargs): pass
-        def toggled(self): return type('obj', (object,), {'connect': lambda *args: None})()
-        def sender(self): return self
-        def setVisible(self, *args, **kwargs): pass
-    class QListWidget:
+        def addWidget(self, widget): pass
+        def addLayout(self, layout): pass
+        def addStretch(self, stretch): pass
+    class QHBoxLayout:
         def __init__(self, *args, **kwargs): pass
-        def addItems(self, *args, **kwargs): pass
-        def currentItem(self): return None
-        def currentRow(self): return -1
-    class QListWidgetItem:
+        def addWidget(self, widget): pass
+        def addLayout(self, layout): pass
+        def addStretch(self, stretch): pass
+    class QLabel:
         def __init__(self, *args, **kwargs): pass
+        def setText(self, text): pass
+        def text(self): return ""
+    class QLineEdit:
+        def __init__(self, *args, **kwargs): pass
+        def setText(self, text): pass
+        def text(self): return ""
+        def setReadOnly(self, read_only): pass
+    class QPushButton:
+        def __init__(self, *args, **kwargs): pass
+        class clicked:
+            def connect(self, func): pass
+    class QComboBox:
+        def __init__(self, *args, **kwargs): pass
+        def clear(self): pass
+        def addItems(self, items): pass
+        def currentText(self): return ""
+        def currentIndex(self): return -1
+        def setCurrentIndex(self, index): pass
+        class currentIndexChanged:
+            def connect(self, func): pass
+    class QMessageBox:
+        @staticmethod
+        def critical(parent, title, message): print(f"CRITICAL: {title}: {message}")
+        @staticmethod
+        def warning(parent, title, message): print(f"WARNING: {title}: {message}")
+        @staticmethod
+        def information(parent, title, message): print(f"INFORMATION: {title}: {message}")
+    class QButtonGroup:
+        def __init__(self, *args, **kwargs): pass
+        def addButton(self, button): pass
+        def checkedButton(self): return None
+    class QWidget:
+        def __init__(self, *args, **kwargs): pass
+        def setLayout(self, layout): pass
+        def setSizePolicy(self, h_policy, v_policy): pass
+    class QSizePolicy:
+        Fixed = 0
+        Expanding = 1
+        Preferred = 2
+        Minimum = 3
+        Maximum = 4
+        Ignored = 5
+        Stretch = 1
+        def __init__(self, h_policy, v_policy): pass
+    class QFileDialog:
+        @staticmethod
+        def getOpenFileName(parent, caption, directory, filter): return "",""
+        @staticmethod
+        def getExistingDirectory(parent, caption, directory): return ""
     class QCheckBox:
         def __init__(self, *args, **kwargs): pass
-        def setChecked(self, *args, **kwargs): pass
         def isChecked(self): return False
-        def stateChanged(self): return type('obj', (object,), {'connect': lambda *args: None})()
-        def setVisible(self, *args, **kwargs): pass
+        class stateChanged:
+            def connect(self, func): pass
+        def setChecked(self, checked): pass
+    class QRadioButton:
+        def __init__(self, *args, **kwargs): pass
+        def isChecked(self): return False
+        class clicked:
+            def connect(self, func): pass
+    class QListWidget:
+        def __init__(self, *args, **kwargs): pass
+        def clear(self): pass
+        def addItems(self, items): pass
+        def selectedItems(self): return []
+        class itemSelectionChanged:
+            def connect(self, func): pass
+    class QListWidgetItem:
+        def __init__(self, *args, **kwargs): pass
     class QCoreApplication:
         @staticmethod
-        def translate(context, text, disambiguation=None, n=-1): return text
-    class QFont:
-        def __init__(self, *args, **kwargs): pass
-    class QFontMetrics:
-        def __init__(self, *args, **kwargs): pass
-    class QEvent:
-        Type = type('obj', (object,), {'ContextMenu': 0})()
-    class QMenu:
-        def __init__(self, *args, **kwargs): pass
-        def exec(self, *args, **kwargs): return None
-        def addAction(self, *args, **kwargs): return None
-    class QAction:
-        def __init__(self, *args, **kwargs): pass
-        def triggered(self): return type('obj', (object,), {'connect': lambda *args: None})()
+        def applicationDirPath(): return ""
+
+    class Qt:
+        SolidLine = 0
+        NoButton = 0
+        Checked = 2 # Dummy for QCheckBox.stateChanged
+        Unchecked = 0 # Dummy for QCheckBox.stateChanged
 
 
-# Define a wrapper for mobase.IOrganizer to handle missing 'log' method
 class OrganizerWrapper:
-    """Wrapper for mobase.IOrganizer with enhanced logging capabilities."""
-    def __init__(self, actual_organizer: mobase.IOrganizer):
-        self._actual_organizer = actual_organizer
-        # Define log level mapping internally
-        self._log_level_map = {
-            0: "DEBUG",
-            1: "INFO",
-            2: "WARNING",
-            3: "ERROR",
-            4: "CRITICAL"
-        }
-
-        # Custom log file setup
+    """
+    A wrapper class for mobase.IOrganizer to provide logging and
+    centralized access to MO2 functionalities for UI components,
+    and to allow setting a custom log file path.
+    """
+    def __init__(self, organizer: mobase.IOrganizer):
+        self._organizer = organizer
+        self._log_file_path: Optional[Path] = None
         self._log_file = None
-        try:
-            # Determine the full path for the custom log file
-            # It should be located within your plugin's directory
-            plugin_dir = Path(__file__).parent
-            log_file_path = plugin_dir / "SkyGen_Debug.log"
-            
-            # Open the file in write mode ('w')
-            self._log_file = open(log_file_path, 'w', encoding='utf-8')
-            # Ensure the file is flushed immediately after writing
-            self._log_file.reconfigure(line_buffering=True) # Enables line buffering for immediate flushing
-            self.log(1, f"SkyGen: Custom log file opened at: {log_file_path}")
-        except (IOError, OSError) as e:
-            QMessageBox.critical(None, "SkyGen Log Error", 
-                                 f"Failed to open plugin debug log file at:\n{log_file_path}\n\n"
-                                 f"This is often due to permissions issues. Please ensure the plugin directory is writable.\nError: {e}")
-            print(f"[CRITICAL] SkyGen: Failed to open custom log file: {e}")
-            self._log_file = None # Ensure it's None if opening failed
 
-    def __enter__(self):
-        """Context manager entry."""
-        return self
+    def set_log_file_path(self, log_file_path: Path):
+        """Sets the path for the custom log file."""
+        self._log_file_path = log_file_path
+        self._open_log_file() # Open/reopen the log file with the new path
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - ensures log file is closed."""
-        self.close_log_file()
-
-    def log(self, level, message):
-        """
-        Custom logging method that *always* falls back to print() for now,
-        to bypass mobase.IOrganizer.log issues.
-        """
-        log_level_str = self._log_level_map.get(level, "UNKNOWN")
-        formatted_message = f"[{log_level_str}] {message}"
-        print(formatted_message) # Always print, bypassing hasattr check
-
-        # Write to custom log file as well
+    def _open_log_file(self):
+        """Opens or reopens the custom log file."""
         if self._log_file:
-            try:
-                self._log_file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {formatted_message}\n")
-                self._log_file.flush() # Ensure immediate write to disk
-            except Exception as e:
-                # Fallback print if writing to file fails
-                print(f"[CRITICAL] SkyGen: Failed to write to custom log file: {e}")
+            self._log_file.close()
+        if self._log_file_path:
+            # Changed "a" (append) to "w" (write, which truncates)
+            self._log_file = open(self._log_file_path, "w", encoding="utf-8")
+        else:
+            self._log_file = None # Ensure it's None if no path set
 
+    def log(self, level: int, message: str):
+        """
+        Logs a message to MO2's log and optionally to a custom file.
+        Levels: 0 (debug), 1 (info), 2 (warning), 3 (error), 4 (critical)
+        """
+        log_map = {
+            0: 0,    # Maps to mobase Debug level
+            1: 1,    # Maps to mobase Info level
+            2: 2,    # Maps to mobase Warning level
+            3: 3,    # Maps to mobase Error level
+            4: 4     # Maps to mobase Critical level
+        }
+        mo2_log_level = log_map.get(level, 1) # Default to 1 (Info) if level is unknown
+        
+        full_message = f"SkyGen (Level {mo2_log_level}): {message}" 
+        
+        # The line self._organizer.log(mo2_log_level, message) is now completely absent.
+        # This means no messages will be logged directly to MO2's main console via this wrapper's log method.
+        # All messages will still be written to the custom log file.
+        
+        if self._log_file:
+            self._log_file.write(full_message + "\n")
+            self._log_file.flush() # Ensure message is written immediately
 
-    # Method to explicitly close the custom log file
     def close_log_file(self):
-        """
-        Closes the custom log file if it was successfully opened.
-        """
+        """Closes the custom log file."""
         if self._log_file:
-            try:
-                self.log(1, "SkyGen: Closing custom log file.")
-                self._log_file.close()
-                self._log_file = None # Set to None after closing
-            except Exception as e:
-                print(f"[CRITICAL] SkyGen: Error closing custom log file: {e}")
+            self.log(0, "SkyGen: Closing custom log file.")
+            self._log_file.close()
+            self._log_file = None
 
+    # Passthrough methods for mobase.IOrganizer functionality
+    def basePath(self) -> str:
+        return self._organizer.basePath()
 
-    # Forwarding methods for mobase.IOrganizer functionalities
-    def modList(self):
-        return self._actual_organizer.modList()
+    def pluginDataPath(self) -> str:
+        return self._organizer.pluginDataPath()
 
-    def pluginList(self):
-        return self._actual_organizer.pluginList()
+    def modList(self) -> mobase.IModList:
+        return self._organizer.modList()
 
-    def basePath(self):
-        return self._actual_organizer.basePath()
-
-    def gameDataPath(self):
-        if hasattr(self._actual_organizer, 'gameDataPath'):
-            return self._actual_organizer.gameDataPath()
-        else:
-            self.log(2, "SkyGen: WARNING: mobase.IOrganizer object has no attribute 'gameDataPath'.")
-            return ""
+    def pluginList(self) -> mobase.IPluginList:
+        return self._organizer.pluginList()
     
-    def overwritePath(self):
+    def getExecutables(self) -> list[mobase.ExecutableInfo]:
         """
-        Forwards overwritePath to the actual organizer.
+        Attempts to retrieve the list of executables from IOrganizer.
+        Handles AttributeError if getExecutables is not available on this MO2 version.
         """
-        if hasattr(self._actual_organizer, 'overwritePath'):
-            return self._actual_organizer.overwritePath()
-        else:
-            self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'overwritePath'. This method is required.")
-            return ""
-
-    def startApplication(self, executableName: str, arguments: list[str], workingDirectory: str):
-        return self._actual_organizer.startApplication(executableName, arguments, workingDirectory)
-
-    def getPathForExecutable(self, executableName: str):
-        if hasattr(self._actual_organizer, 'getPathForExecutable'):
-            return self._actual_organizer.getPathForExecutable(executableName)
-        else:
-            self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'getPathForExecutable'. This method is required.")
-            return ""
-
-    def managedGame(self):
-        if hasattr(self._actual_organizer, 'managedGame'):
-            return self._actual_organizer.managedGame()
-        else:
-            self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'managedGame'. This method is required.")
-            return None
-
-    def getExecutables(self):
-        if hasattr(self._actual_organizer, 'getExecutables'):
-            return self._actual_organizer.getExecutables()
-        else:
-            self.log(3, f"SkyGen: ERROR: mobase.IOrganizer object has no attribute 'getExecutables'. This method is required.")
+        try:
+            # Attempt to call the method on the actual organizer object
+            executables = self._organizer.getExecutables()
+            self.log(0, f"SkyGen: DEBUG: Successfully retrieved {len(executables)} executables from MO2.")
+            return executables
+        except AttributeError:
+            self.log(3, "SkyGen: ERROR: mobase.IOrganizer object has no attribute 'getExecutables' in this MO2 version. Cannot auto-detect executables from MO2's list.")
+            self.log(2, "SkyGen: WARNING: Falling back to config.json for xEdit path or requiring manual entry.")
+            return [] # Return an empty list if the method doesn't exist
+        except Exception as e:
+            self.log(3, f"SkyGen: ERROR: Unexpected error getting executables from MO2: {e}\n{traceback.format_exc()}")
             return []
 
-# ───────── UI Classes ─────────
-class PluginDisambiguationDialog(QDialog):
-    def __init__(self, organizer_wrapper, mod_display_name, matching_plugins, parent=None):
-        super().__init__(parent)
-        self.organizer = organizer_wrapper
-        self.mod_display_name = mod_display_name
-        self.matching_plugins = matching_plugins
-        self.selected_plugin = None
 
-        self.setWindowTitle(f"Select Plugin for '{self.mod_display_name}'")
-        layout = QVBoxLayout()
+    def startApplication(self, binary: str, args: list[str], workingDirectory: str) -> Any:
+        return self._organizer.startApplication(binary, args, workingDirectory)
 
-        label = QLabel(f"Multiple active plugins found for '{self.mod_display_name}'.\nPlease select the correct plugin file:")
-        layout.addWidget(label)
-
-        self.plugin_combo = QComboBox()
-        self.plugin_combo.addItems(sorted(self.matching_plugins, key=lambda s: s.lower()))
-        layout.addWidget(self.plugin_combo)
-
-        button_layout = QHBoxLayout()
-        ok_button = QPushButton("OK")
-        cancel_button = QPushButton("Cancel")
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-
-        ok_button.clicked.connect(self._accept_selection)
-        cancel_button.clicked.connect(self.reject)
-
-        self.setLayout(layout)
-
-    def _accept_selection(self):
-        self.selected_plugin = self.plugin_combo.currentText()
-        self.accept()
+    def resolvePath(self, path: str) -> str:
+        return self._organizer.resolvePath(path)
 
 
 class SkyGenToolDialog(QDialog):
-
-    def _populate_mod_combobox(self, combo_box: QComboBox):
-        mod_list = self.organizer.modList()
-        plugin_list = self.organizer.pluginList()
-        
-        if mod_list and plugin_list:
-            display_names = set()
-
-            for mod_internal_name in mod_list.allMods():
-                if mod_list.state(mod_internal_name) & mobase.ModState.ACTIVE:
-                    display_names.add(mod_list.displayName(mod_internal_name))
-
-            base_esms = ["Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"]
-            for esm_name in base_esms:
-                if esm_name in plugin_list.pluginNames():
-                    if plugin_list.state(esm_name) & mobase.PluginState.ACTIVE:
-                        display_names.add(esm_name)
-
-            sorted_unique_display_names = sorted(list(display_names), key=lambda s: s.lower())
-            combo_box.addItems(sorted_unique_display_names)
-        else:
-            self.organizer.log(2, "SkyGen: WARNING: Could not retrieve mod or plugin list from organizer.")
-
-
-    def _browse_igpc_json(self):
-        default_start_dir = "H:/Truth Special Edition/overwrite/SKSE/Plugins/StorageUtilData"
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select IGPC JSON File", default_start_dir, "JSON Files (*.json)")
-        if file_path:
-            self.igpc_json_path = file_path
-            self.igpc_path_lineEdit.setText(file_path)
-
-    def _browse_xedit_json(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Pre-exported xEdit JSON File", "", "JSON Files (*.json)")
-        if file_path:
-            self.pre_exported_xedit_json_path = file_path
-            self.xedit_json_lineEdit.setText(file_path)
-
-    def _browse_output_folder(self):
-        folder_dialog = QFileDialog(self)
-        folder_dialog.setFileMode(QFileDialog.FileMode.Directory)
-        folder_dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
-
-        initial_dir = self.organizer.overwritePath() # Default to overwrite
-        if initial_dir and os.path.exists(initial_dir):
-            folder_dialog.setDirectory(initial_dir)
-        elif self.organizer.basePath() and os.path.exists(self.organizer.basePath()):
-             folder_dialog.setDirectory(self.organizer.basePath()) # Fallback to base path
-
-        if folder_dialog.exec():
-            selected_folder = folder_dialog.selectedFiles()
-            if selected_folder:
-                self.output_folder_edit.setText(selected_folder[0])
-                self.output_folder_path = selected_folder[0]
-
-
-    def showError(self, title: str, message: str):
-        QMessageBox.critical(self, title, message)
-
-    def showWarning(self, title: str, message: str):
-        QMessageBox.warning(self, title, message)
-
-    def showInformation(self, title: str, message: str):
-        QMessageBox.information(self, title, message)
-
-    def _get_config_data_for_path_lookup(self) -> dict:
-        """
-        Helper to read config.json for initial xEdit path lookup, similar to display().
-        """
-        config_file_path = Path(__file__).parent / "config.json"
-        config_data = {}
-        if config_file_path.is_file():
-            try:
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    config_data = json.load(f)
-            except Exception as e:
-                self.organizer.log(3, f"SkyGen: ERROR: Could not load config.json for path lookup in _get_config_data_for_path_lookup: {e}")
-        return config_data
-
-
-    def _validate_inputs(self) -> bool:
-        if not hasattr(self, 'output_folder_path') or not self.output_folder_path:
-            self.showWarning("Input Missing", "Please select an Output Folder for the exports.")
-            return False
-        if self.selected_output_type == "SkyPatcher YAML":
-            # NEW: Centralized xEdit path validation
-            xedit_path, xedit_mo2_name = get_xedit_exe_path(self._get_config_data_for_path_lookup(), self.organizer, self)
-            self.determined_xedit_exe_path = xedit_path
-            self.determined_xedit_executable_name = xedit_mo2_name
-            
-            # Remaining validations (retained after replacement)
-            if self.pre_exported_xedit_json_path and not Path(self.pre_exported_xedit_json_path).is_file():
-                self.showError("Input Missing", "Pre-exported xEdit JSON file path is invalid.")
-                return False
-            
-            if not self.selected_game_version:
-                self.showError("Invalid Selection", "Please select a valid Game Version.")
-                return False
-
-            if not self.selected_category or self.selected_category == "Select Category":
-                self.showError("Invalid Selection", "Please select a valid Category.")
-                return False
-
-            if not self.selected_target_mod_name or self.selected_target_mod_name == "Select Target Mod":
-                self.showError("Invalid Selection", "Please select a valid Target Mod.")
-                return False
-            
-            if not self.selected_source_mod_name or self.selected_source_mod_name == "Select Source Mod":
-                self.showError("Invalid Selection", "Please select a valid Source Mod.")
-                return False
-
-        elif self.selected_output_type == "BOS INI":
-            if not self.igpc_json_path or not Path(self.igpc_json_path).is_file():
-                self.showError("Input Missing", "Please select a valid IGPC JSON file for BOS INI generation.")
-                return False
-
-        return True
-
-    def _on_game_version_toggled(self, version):
-        if self.sender().isChecked():
-            self.selected_game_version = version
-            self.organizer.log(1, f"SkyGen: Game version selected: {self.selected_game_version}")
-
-    def _update_ui_for_output_type(self):
-        """
-        Adjusts the visibility of UI elements based on the selected output type.
-        """
-        is_yaml = (self.selected_output_type == "SkyPatcher YAML")
-
-        # Toggle visibility for SkyPatcher YAML related elements
-        self.xedit_json_label.setVisible(is_yaml)
-        self.xedit_json_lineEdit.setVisible(is_yaml)
-        self.xedit_json_button.setVisible(is_yaml)
-        self.category_label.setVisible(is_yaml)
-        self.category_combo.setVisible(is_yaml)
-        self.target_mod_label.setVisible(is_yaml)
-        self.target_mod_combo.setVisible(is_yaml)
-        self.source_mod_label.setVisible(is_yaml)
-        self.source_mod_combo.setVisible(is_yaml)
-        self.keywords_label.setVisible(is_yaml)
-        self.keywords_lineEdit.setVisible(is_yaml)
-        self.broad_category_swap_checkbox.setVisible(is_yaml)
-        self.generate_single_btn.setVisible(is_yaml)
-        self.generate_all_btn.setVisible(is_yaml)
-        self.game_version_label.setVisible(is_yaml)
-        self.se_ae_radio.setVisible(is_yaml)
-        self.vr_radio.setVisible(is_yaml)
-
-
-        # Toggle visibility for BOS INI related elements
-        self.igpc_path_label.setVisible(not is_yaml)
-        self.igpc_path_lineEdit.setVisible(not is_yaml)
-        self.igpc_path_button.setVisible(not is_yaml)
-
-        # Adjust main window size to fit content
-        self.adjustSize()
-
-    def _on_output_type_toggled(self, output_type):
-        if self.sender().isChecked():
-            self.selected_output_type = output_type
-            self.organizer.log(1, f"SkyGen: Output type selected: {self.selected_output_type}")
-            self._update_ui_for_output_type()
-
-            # --- THIS IS THE NEW LOGIC TO WRITE FILES ON TOGGLE ---
-            is_yaml = (self.selected_output_type == "SkyPatcher YAML")
-            if is_yaml:
-                self.organizer.log(1, "SkyGen: SkyPatcher YAML selected. Attempting to write xEdit INI and Pascal script.")
-                
-                # Write Pascal script and check for success
-                if not write_pas_script_to_xedit(self.full_export_script_path, self.organizer):
-                    self.showError("Script Write Error", "Failed to write the xEdit Pascal script to disk. Aborting xEdit launch.")
-                    self.organizer.log(3, "SkyGen: ABORTING: Pascal script write failed during type toggle.")
-                    return # Stop here if write failed
-
-                # Check for JSON.pas dependency
-                json_pas_path = self.full_export_script_path.parent / "JSON.pas"
-                if not json_pas_path.is_file():
-                    self.showError("Missing Dependency", f"Required 'JSON.pas' not found at:\n{json_pas_path}\n\nPlease ensure it's in your xEdit 'Edit Scripts' folder.")
-                    self.organizer.log(3, f"SkyGen: ABORTING: Missing JSON.pas dependency at {json_pas_path}.")
-                    return # Stop here if JSON.pas is missing
-
-            else: # If not YAML, ensure temporary files are cleaned up
-                self.organizer.log(1, "SkyGen: Non-YAML type selected. Cleaning up temporary xEdit INI and Pascal script if they exist.")
-                clean_temp_script_and_ini(self.determined_xedit_exe_path, self.full_export_script_path, self.organizer)
-            # --- END NEW LOGIC ---
-
-        self.adjustSize()
-
-
-    def _update_category(self, index):
-        self.selected_category = self.category_combo.currentText()
-        self.organizer.log(1, f"SkyGen: Category selected: {self.selected_category}")
-
-    def _on_target_mod_selected(self, index):
-        self.selected_target_mod_name = self.target_mod_combo.currentText()
-        self.organizer.log(1, f"SkyGen: Target mod selected: {self.selected_target_mod_name}")
-
-    def _on_source_mod_selected(self, index):
-        self.selected_source_mod_name = self.source_mod_combo.currentText()
-        self.organizer.log(1, f"SkyGen: Source mod selected: {self.selected_source_mod_name}")
-
-    def _on_broad_category_swap_changed(self, state):
-        self.broad_category_swap_enabled = (state == Qt.CheckState.Checked.value)
-        self.organizer.log(1, f"SkyGen: Broad Category Swap enabled: {self.broad_category_swap_enabled}")
-
-    def _load_config(self):
-        config_file_path = Path(__file__).parent / "config.json"
-        config_data = {}
-        if config_file_path.is_file():
-            try:
-                with open(config_file_path, 'r', encoding='utf-8') as f:
-                    config_data = json.load(f)
-                    self.organizer.log(1, "SkyGen: Successfully loaded config.json.")
-            except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e:
-                self.organizer.log(3, f"SkyGen: ERROR: Could not load config.json: {e}")
-                # Try to backup corrupted config
-                try:
-                    backup_path = config_file_path.with_suffix('.json.backup')
-                    config_file_path.rename(backup_path)
-                    self.organizer.log(2, f"SkyGen: Corrupted config backed up to: {backup_path}")
-                except Exception as backup_error:
-                    self.organizer.log(3, f"SkyGen: Failed to backup corrupted config: {backup_error}")
-        else:
-            self.organizer.log(1, "SkyGen: config.json not found. Using empty configuration.")
-
-        # MODIFIED: Default output folder to MO2's overwrite path or a robust fallback
-        default_overwrite_path = str(self.organizer.overwritePath())
-        # Check if overwritePath() is valid and exists, otherwise use a fallback
-        if not default_overwrite_path or not Path(default_overwrite_path).is_dir():
-            fallback_output_path = Path(__file__).parent / "SkyGen_Output"
-            fallback_output_path.mkdir(parents=True, exist_ok=True) # Ensure fallback directory exists
-            default_overwrite_path = str(fallback_output_path)
-            self.organizer.log(2, f"SkyGen: WARNING: Overwrite path invalid or not found, defaulting output to {default_overwrite_path}")
-
-        self.output_folder_path = config_data.get("output_folder_path", default_overwrite_path)
-        
-        self.full_export_script_path = Path(config_data.get("full_export_script_path", "H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas"))
-        self.selected_game_version = config_data.get("selected_game_version", "SkyrimSE")
-        self.selected_output_type = config_data.get("selected_output_type", "SkyPatcher YAML")
-        # INSERTED: Load determined xEdit paths and name from config
-        self.determined_xedit_executable_name = config_data.get("xedit_mo2_name", "")
-        self.determined_xedit_exe_path = Path(config_data.get("xedit_exe_path", ""))
-        
-        plugin_map = config_data.get("plugin_disambiguation_map", {})
-        self.plugin_disambiguation_map = plugin_map if isinstance(plugin_map, dict) else {}
-
-    def _save_config(self, config: dict):
-        config_file_path = Path(__file__).parent / "config.json"
-        try:
-            config_file_path.parent.mkdir(parents=True, exist_ok=True)
-            temp_path = config_file_path.with_suffix('.json.tmp')
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-            temp_path.replace(config_file_path)
-            self.organizer.log(1, "SkyGen: Successfully saved config.json.")
-        except (IOError, OSError, UnicodeEncodeError) as e:
-            self.organizer.log(3, f"SkyGen: ERROR: Could not save config.json: {e}")
-            temp_path = config_file_path.with_suffix('.json.tmp')
-            if temp_path.exists():
-                try:
-                    temp_path.unlink()
-                except Exception:
-                    pass
-
-    def _on_generate_single_clicked(self):
-        self.organizer.log(1, "SkyGen: 'Generate Single YAML' button clicked.")
-        if self._validate_inputs():
-            config_to_save = {
-                "output_folder_path": self.output_folder_path,
-                "selected_game_version": self.selected_game_version,
-                "selected_output_type": self.selected_output_type,
-                "plugin_disambiguation_map": self.plugin_disambiguation_map,
-                # INSERTED: Save determined xEdit name and path before script path
-                "xedit_mo2_name": self.determined_xedit_executable_name,
-                "xedit_exe_path": str(self.determined_xedit_exe_path),
-                "full_export_script_path": str(self.full_export_script_path),
-            }
-            self._save_config(config_to_save)
-            self.generate_all = False
-            self.accept()
-        else:
-            self.organizer.log(1, "SkyGen: Input validation failed for single generation.")
-
-    def _on_generate_all_clicked(self):
-        self.organizer.log(1, "SkyGen: 'Generate All Applicable YAMLs' button clicked.")
-        if self._validate_inputs():
-            config_to_save = {
-                "output_folder_path": self.output_folder_path,
-                "selected_game_version": self.selected_game_version,
-                "selected_output_type": self.selected_output_type,
-                "plugin_disambiguation_map": self.plugin_disambiguation_map,
-                # INSERTED: Save determined xEdit name and path before script path
-                "xedit_mo2_name": self.determined_xedit_executable_name,
-                "xedit_exe_path": str(self.determined_xedit_exe_path),
-                "full_export_script_path": str(self.full_export_script_path),
-            }
-            self._save_config(config_to_save)
-            self.generate_all = True
-            self.accept()
-        else:
-            self.organizer.log(1, "SkyGen: Input validation failed for all generation.)")
-
-
-    def _get_xedit_categories(self):
-        return [
-            "Armor", "Weapon", "Potion", "Book", "Light", "Activator",
-            "Container", "Door", "Flora", "Furniture", "Ingredient",
-            "Misc. Item", "Outfit", "NPC", "Race", "Spell", "Magic Effect",
-            "Worldspace", "Cell", "Ammo", "Soul Gem", "Key", "Scroll",
-            "Enchantment", "Armor Addon", "Constructible Object", "Keyword",
-            "Faction", "Global", "Class", "Sound Descriptor", "Impact Data Set",
-            "Object Effect", "Load Screen", "Weather", "Clutter", "Explosion",
-            "Debris", "Liquid", "Tree", "Landscape", "Texture Set",
-            "Material Type", "Menu Display Object", "Dialogue Branch", "Quest",
-            "Idle Marker", "Lighting Template", "Actor Value Info", "Equip Slot",
-            "Form List", "Static"
-        ]
-
-    def clean_mod_name_for_plugin_match(self, name_to_clean):
-        cleaned = name_to_clean.lower()
-        for suffix in [" - se", " - ae", " - vr"]:
-            if cleaned.endswith(suffix):
-                cleaned = cleaned[:-len(suffix)]
-                break
-        cleaned = cleaned.replace("'", "").replace("&", "and").replace(" ", "_")
-        return cleaned.strip()
-
-    def _get_plugin_name_from_mod_name(self, mo2_mod_display_name: str, mod_internal_name: str) -> Optional[str]:
-        if mod_internal_name in self.plugin_disambiguation_map:
-            saved_plugin = self.plugin_disambiguation_map[mod_internal_name]
-            if saved_plugin in self.organizer.pluginList().pluginNames() and \
-               self.organizer.pluginList().state(saved_plugin) & mobase.PluginState.ACTIVE:
-                self.organizer.log(0, f"SkyGen: Using saved plugin '{saved_plugin}' for mod '{mo2_mod_display_name}'.")
-                return saved_plugin
-            else:
-                self.organizer.log(2, f"SkyGen: Saved plugin '{saved_plugin}' for mod '{mo2_mod_display_name}' not found or inactive. Re-disambiguating.")
-                del self.plugin_disambiguation_map[mod_internal_name]
-
-        cleaned_mod_name = self.clean_mod_name_for_plugin_match(mod_internal_name)
-        potential_plugins = []
-
-        for plugin_filename in self.organizer.pluginList().pluginNames():
-            # INSERTED: Skip .pas files
-            if plugin_filename.lower().endswith(".pas"):
-                self.organizer.log(0, f"SkyGen: DEBUG: Skipping .pas file from plugin matching: {plugin_filename}")
-                continue
-            plugin_state = self.organizer.pluginList().state(plugin_filename)
-            
-            plugin_stem = Path(plugin_filename).stem
-            cleaned_plugin_stem = self.clean_mod_name_for_plugin_match(plugin_stem)
-
-            if (plugin_state & mobase.PluginState.ACTIVE) and \
-                           (cleaned_plugin_stem == cleaned_mod_name or
-                            cleaned_plugin_stem.startswith(cleaned_mod_name) or
-                            cleaned_mod_name in cleaned_plugin_stem):
-                potential_plugins.append(plugin_filename)
-
-        if not potential_plugins:
-            self.organizer.log(1, f"SkyGen: No active plugin found for mod '{mo2_mod_display_name}' (cleaned: '{cleaned_mod_name}').")
-            return None
-        elif len(potential_plugins) == 1:
-            self.organizer.log(0, f"SkyGen: Found single plugin '{potential_plugins[0]}' for mod '{mo2_mod_display_name}'.")
-            self.plugin_disambiguation_map[mod_internal_name] = potential_plugins[0]
-            return potential_plugins[0]
-        else:
-            self.organizer.log(1, f"SkyGen: Multiple plugins found for '{mo2_mod_display_name}'. Showing disambiguation dialog.")
-            disambiguation_dialog = PluginDisambiguationDialog(self.organizer, mo2_mod_display_name, potential_plugins, self)
-            if disambiguation_dialog.exec() == QDialog.DialogCode.Accepted:
-                # MODIFIED: Use disambiguation_dialog.selected_plugin directly
-                self.plugin_disambiguation_map[mod_internal_name] = disambiguation_dialog.selected_plugin
-                self.organizer.log(1, f"SkyGen: User selected plugin '{disambiguation_dialog.selected_plugin}' for mod '{mo2_mod_display_name}'.")
-                return disambiguation_dialog.selected_plugin
-            else:
-                self.organizer.log(1, f"SkyGen: Plugin selection cancelled for mod '{mo2_mod_display_name}'.")
-                return None
-
-
-    def _init_ui(self):
-        layout = QVBoxLayout()
-
-        igpc_path_layout = QHBoxLayout()
-        self.igpc_path_label = QLabel("IGPC JSON Path:")
-        self.igpc_path_lineEdit = QLineEdit(self.igpc_json_path)
-        self.igpc_path_button = QPushButton("Browse...")
-        self.igpc_path_button.clicked.connect(self._browse_igpc_json)
-        igpc_path_layout.addWidget(self.igpc_path_label)
-        igpc_path_layout.addWidget(self.igpc_path_lineEdit)
-        igpc_path_layout.addWidget(self.igpc_path_button)
-        layout.addLayout(igpc_path_layout)
-
-        xedit_json_layout = QHBoxLayout()
-        self.xedit_json_label = QLabel("Pre-exported xEdit JSON (Optional):")
-        self.xedit_json_lineEdit = QLineEdit(self.pre_exported_xedit_json_path)
-        self.xedit_json_button = QPushButton("Browse...")
-        self.xedit_json_button.clicked.connect(self._browse_xedit_json)
-        xedit_json_layout.addWidget(self.xedit_json_label)
-        xedit_json_layout.addWidget(self.xedit_json_lineEdit)
-        xedit_json_layout.addWidget(self.xedit_json_button)
-        layout.addLayout(xedit_json_layout)
-            
-        output_folder_layout = QHBoxLayout()
-        self.output_folder_label = QLabel("Output Folder:")
-        self.output_folder_edit = QLineEdit()
-        self.output_folder_edit.setReadOnly(True)
-        self.output_folder_edit.setPlaceholderText("Select folder for xEdit JSON exports")
-        self.output_folder_button = QPushButton("Browse")
-        self.output_folder_button.clicked.connect(self._browse_output_folder)
-        output_folder_layout.addWidget(self.output_folder_label)
-        output_folder_layout.addWidget(self.output_folder_edit)
-        output_folder_layout.addWidget(self.output_folder_button)
-        layout.addLayout(output_folder_layout)
-
-
-        game_version_layout = QHBoxLayout()
-        self.game_version_label = QLabel("Game Version:")
-        self.se_ae_radio = QRadioButton("Skyrim SE/AE")
-        self.vr_radio = QRadioButton("Skyrim VR")
-
-        if self.selected_game_version == "SkyrimVR":
-            self.vr_radio.setChecked(True)
-        else:
-            self.se_ae_radio.setChecked(True)
-            self.selected_game_version = "SkyrimSE"
-
-        self.se_ae_radio.toggled.connect(lambda: self._on_game_version_toggled("SkyrimSE"))
-        self.vr_radio.toggled.connect(lambda: self._on_game_version_toggled("SkyrimVR"))
-
-        game_version_layout.addWidget(self.game_version_label)
-        game_version_layout.addWidget(self.se_ae_radio)
-        game_version_layout.addWidget(self.vr_radio)
-        game_version_layout.addStretch(1)
-        layout.addLayout(game_version_layout)
-
-        output_type_layout = QHBoxLayout()
-        output_type_label = QLabel("Output Type:")
-        self.output_type_group = QButtonGroup(self)
-        self.yaml_radio = QRadioButton("SkyPatcher YAML")
-        self.bos_ini_radio = QRadioButton("BOS INI")
-
-        self.output_type_group.addButton(self.yaml_radio)
-        self.output_type_group.addButton(self.bos_ini_radio)
-
-        if self.selected_output_type == "BOS INI":
-            self.bos_ini_radio.setChecked(True)
-        else:
-            self.yaml_radio.setChecked(True)
-            self.selected_output_type = "SkyPatcher YAML"
-
-        self.yaml_radio.toggled.connect(lambda: self._on_output_type_toggled("SkyPatcher YAML"))
-        self.bos_ini_radio.toggled.connect(lambda: self._on_output_type_toggled("BOS INI"))
-
-        output_type_layout.addWidget(output_type_label)
-        output_type_layout.addWidget(self.yaml_radio)
-        output_type_layout.addWidget(self.bos_ini_radio)
-        output_type_layout.addStretch(1)
-        layout.addLayout(output_type_layout)
-
-
-        category_layout = QHBoxLayout()
-        self.category_label = QLabel("Category:")
-        self.category_combo = QComboBox()
-        categories = ["Select Category"] + self._get_xedit_categories()
-        self.category_combo.addItems(categories)
-        self.category_combo.currentIndexChanged.connect(self._update_category)
-        category_layout.addWidget(self.category_label)
-        category_layout.addWidget(self.category_combo)
-        layout.addLayout(category_layout)
-
-        target_mod_layout = QHBoxLayout()
-        self.target_mod_label = QLabel("Target Mod (To Replace From):")
-        self.target_mod_combo = QComboBox()
-        self.target_mod_combo.addItem("Select Target Mod")
-        self._populate_mod_combobox(self.target_mod_combo)
-        self.target_mod_combo.currentIndexChanged.connect(self._on_target_mod_selected)
-        target_mod_layout.addWidget(self.target_mod_label)
-        target_mod_layout.addWidget(self.target_mod_combo)
-        layout.addLayout(target_mod_layout)
-
-        self.source_mod_layout = QHBoxLayout()
-        self.source_mod_label = QLabel("Source Mod (Replace With):")
-        self.source_mod_combo = QComboBox()
-        self.source_mod_combo.addItem("Select Source Mod")
-        self._populate_mod_combobox(self.source_mod_combo)
-        self.source_mod_combo.currentIndexChanged.connect(self._on_source_mod_selected)
-        self.source_mod_layout.addWidget(self.source_mod_label)
-        self.source_mod_layout.addWidget(self.source_mod_combo)
-        layout.addLayout(self.source_mod_layout)
-
-        self.keywords_layout = QHBoxLayout()
-        self.keywords_label = QLabel("Filter by EDID Keywords (comma-separated):")
-        self.keywords_lineEdit = QLineEdit("")
-        self.keywords_layout.addWidget(self.keywords_label)
-        self.keywords_layout.addWidget(self.keywords_lineEdit)
-        layout.addLayout(self.keywords_layout)
-
-        self.broad_swap_layout = QHBoxLayout()
-        self.broad_category_swap_checkbox = QCheckBox("Enable Broad Category Swap (replaces by category only, not EDID)")
-        self.broad_category_swap_checkbox.setChecked(self.broad_category_swap_enabled)
-        self.broad_swap_layout.addWidget(self.broad_category_swap_checkbox)
-        layout.addLayout(self.broad_swap_layout)
-
-        button_layout = QHBoxLayout()
-        self.generate_single_btn = QPushButton("Generate Single YAML")
-        self.generate_all_btn = QPushButton("Generate All Applicable YAMLs")
-        self.cancel_btn = QPushButton("Cancel")
-        button_layout.addWidget(self.generate_single_btn)
-        button_layout.addWidget(self.generate_all_btn)
-        button_layout.addWidget(self.cancel_btn)
-        layout.addLayout(button_layout)
-
-        self.setLayout(layout)
-
-
-    def __init__(self, organizer: mobase.IOrganizer,
-                 parent=None):
-        super().__init__(parent)
-        self.organizer = organizer
-        self.setWindowTitle("SkyGen - SkyPatcher YAML Generator Configuration")
-        self.setMinimumWidth(500)
-
-        self.igpc_json_path = ""
-        self.pre_exported_xedit_json_path = ""
-        self.selected_game_version = ""
+    """
+    The main UI dialog for the SkyGen tool.
+    Handles user interaction, path selection, and triggers generation processes.
+    """
+    def __init__(self, organizer_wrapper: OrganizerWrapper):
+        super().__init__()
+        self._organizer_wrapper = organizer_wrapper
+        self.setWindowTitle("SkyGen Tool")
+        self.setMinimumSize(700, 500) # Increased minimum size for better layout
+
+        self.categories_data = {} # To store data from categories.json
+        self.output_folder_path = "" # Path where outputs will be saved (e.g., MO2 overwrite)
         self.selected_category = ""
         self.selected_target_mod_name = ""
         self.selected_source_mod_name = ""
-        self.generate_all = False
-        self.search_keywords = ""
-        self.broad_category_swap_enabled = False
-        self.plugin_disambiguation_map = {}
-        self.selected_output_type = "SkyPatcher YAML"
+        self.selected_game_version = "SkyrimSE" # Default
+        self.selected_output_type = "SkyPatcher YAML" # Default
+        self.generate_all = False # Flag for single or all generation
 
-        # These are now set in _load_config or determined in _validate_inputs
-        self.determined_xedit_executable_name = "" # Initialize to empty string
-        self.determined_xedit_exe_path = Path("") # Initialize to empty path
-        
-        self.full_export_script_path = Path("H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas")
-        self.output_folder_path = ""
-        self._load_config() # This will load values from config.json, including xEdit paths
+        # Properties to store determined paths/names from the plugin's display method
+        self.determined_xedit_executable_name = ""
+        self.determined_xedit_exe_path = Path("")
+        self.game_root_path = Path("") # Initialize game root path
 
-        self._init_ui()
+        # Paths initialized from config in _load_config
+        self.igpc_json_path = ""
+        self.pre_exported_xedit_json_path = ""
+        # self.full_export_script_path = Path("H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas") # Default, overridden by config - REMOVED
 
+        # Call _init_ui first to create widgets before _load_config tries to set their text
+        self._init_ui() 
+        self._load_config() # This will load values from config.json and now populate UI fields
+
+        # Connect signals and slots
         self.category_combo.currentIndexChanged.connect(self._update_category)
         self.target_mod_combo.currentIndexChanged.connect(self._on_target_mod_selected)
         self.source_mod_combo.currentIndexChanged.connect(self._on_source_mod_selected)
         self.generate_single_btn.clicked.connect(self._on_generate_single_clicked)
         self.generate_all_btn.clicked.connect(self._on_generate_all_clicked)
         self.cancel_btn.clicked.connect(self.reject)
+        
+        # Connect output type radio buttons
+        self.skypatcher_radio.clicked.connect(self._on_output_type_toggled)
+        self.bos_ini_radio.clicked.connect(self._on_output_type_toggled)
+
+        # Connect game version radio buttons
+        self.skyrimse_radio.clicked.connect(self._on_game_version_toggled)
+        self.skyrimvr_radio.clicked.connect(self._on_game_version_toggled) # Connect this if adding VR
+
+        # Connect broad category swap checkbox if it exists
         if hasattr(self, 'broad_category_swap_checkbox'):
             self.broad_category_swap_checkbox.stateChanged.connect(self._on_broad_category_swap_changed)
 
-        self.igpc_path_lineEdit.setText(self.igpc_json_path)
-        self.xedit_json_lineEdit.setText(self.pre_exported_xedit_json_path)
-        self.output_folder_edit.setText(self.output_folder_path)
+        # Initial UI state setup (now called AFTER _load_config populates selected_output_type)
+        self._on_output_type_toggled() 
 
-        # Call _update_ui_for_output_type initially to set correct visibility
-        self._update_ui_for_output_type()
+        # Initial population of mod lists and categories (no need to set text fields here anymore)
+        self._populate_mod_combos()
+        self._populate_categories()
+
+    def _load_config(self):
+        """
+        Loads configuration from config.json and populates UI fields.
+        """
+        config_file_path = Path(__file__).parent / "config.json"
+        if not config_file_path.is_file():
+            self._organizer_wrapper.log(2, f"SkyGen: WARNING: config.json not found at {config_file_path}. Using default settings.")
+            # Set default values for paths if config.json doesn't exist
+            self.output_folder_path = str(Path(self._organizer_wrapper._organizer.overwritePath())) # Corrected access
+            # self.full_export_script_path = Path("H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas") # REMOVED
+            self.igpc_json_path = ""
+            self.pre_exported_xedit_json_path = ""
+            # Set default UI values here too if config is not loaded
+            if hasattr(self, 'igpc_path_lineEdit'): # Ensure widgets exist before setting text
+                self.igpc_path_lineEdit.setText(self.igpc_json_path)
+                self.xedit_json_lineEdit.setText(self.pre_exported_xedit_json_path)
+                self.output_folder_lineEdit.setText(self.output_folder_path)
+                # self.xedit_script_path_lineEdit.setText(str(self.full_export_script_path)) # REMOVED
+            return
+
+        try:
+            with open(config_file_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+
+            # Load paths, ensuring they are Path objects (or strings for JSON line edits)
+            self.igpc_json_path = config_data.get("igpc_json_path", "")
+            self.pre_exported_xedit_json_path = config_data.get("pre_exported_xedit_json_path", "")
+            # self.full_export_script_path = Path(config_data.get("full_export_script_path", "H:/Truth Special Edition/tools/SSEEdit/Edit Scripts/ExportPluginData.pas")) # Default - REMOVED
+            self.output_folder_path = config_data.get("output_folder_path", str(Path(self._organizer_wrapper._organizer.overwritePath()))) # Corrected access # Default to overwrite
+
+            # Load other settings
+            self.selected_game_version = config_data.get("selected_game_version", "SkyrimSE")
+            
+            # Set radio button based on loaded config
+            if self.selected_game_version == "SkyrimSE":
+                self.skyrimse_radio.setChecked(True)
+            elif self.selected_game_version == "SkyrimVR": # For Skyrim VR
+                self.skyrimvr_radio.setChecked(True)
+
+            self.selected_output_type = config_data.get("selected_output_type", "SkyPatcher YAML")
+            self.plugin_disambiguation_map = config_data.get("plugin_disambiguation_map", {})
+
+            # Populate initial values into UI fields after loading config
+            # These lines were moved from __init__
+            self.igpc_path_lineEdit.setText(self.igpc_json_path)
+            self.xedit_json_lineEdit.setText(self.pre_exported_xedit_json_path)
+            self.output_folder_lineEdit.setText(self.output_folder_path)
+            # self.xedit_script_path_lineEdit.setText(str(self.full_export_script_path)) # REMOVED
+
+            # Log successful loading
+            self._organizer_wrapper.log(1, f"SkyGen: Configuration loaded from {config_file_path}")
+
+        except json.JSONDecodeError as e:
+            self._organizer_wrapper.log(3, f"SkyGen: ERROR: Error decoding config.json: {e}. Please check file syntax.")
+            self.showError("Config Error", f"Error reading config.json: {e}. Please ensure it's valid JSON.")
+        except IOError as e:
+            self._organizer_wrapper.log(3, f"SkyGen: ERROR: I/O error reading config.json: {e}.")
+            self.showError("Config Error", f"I/O error reading config.json: {e}.")
+        except Exception as e:
+            self._organizer_wrapper.log(3, f"SkyGen: ERROR: Unexpected error loading config.json: {e}\n{traceback.format_exc()}")
+            self.showError("Config Error", f"An unexpected error occurred while loading config.json: {e}")
+
+    def _save_config(self):
+        """
+        Saves current settings to config.json.
+        """
+        config_file_path = Path(__file__).parent / "config.json"
+        config_data = {
+            "igpc_json_path": self.igpc_path_lineEdit.text().strip(),
+            "pre_exported_xedit_json_path": self.xedit_json_lineEdit.text().strip(),
+            # "full_export_script_path": str(self.full_export_script_path), # Ensure it's a string for JSON - REMOVED
+            "output_folder_path": self.output_folder_lineEdit.text().strip(),
+            "selected_game_version": self.selected_game_version,
+            "selected_output_type": self.selected_output_type,
+            "plugin_disambiguation_map": self.plugin_disambiguation_map,
+            # Add these two lines to save xEdit paths:
+            "xedit_exe_path": str(self.determined_xedit_exe_path), # Ensure it's a string
+            "xedit_mo2_name": self.determined_xedit_executable_name
+        }
+        try:
+            with open(config_file_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, indent=4)
+            self._organizer_wrapper.log(1, f"SkyGen: Configuration saved to {config_file_path}")
+        except Exception as e:
+            self._organizer_wrapper.log(3, f"SkyGen: ERROR: Failed to save config.json: {e}\n{traceback.format_exc()}")
+            self.showWarning("Save Error", f"Failed to save configuration: {e}. Settings may not persist.")
+
+
+    def _init_ui(self):
+        """Initializes the dialog's user interface elements."""
+        main_layout = QVBoxLayout()
+
+        # Output Type Selection
+        output_type_group_box_layout = QVBoxLayout()
+        output_type_group_box = QWidget()
+        output_type_group_box.setLayout(output_type_group_box_layout)
+        output_type_group_box.setStyleSheet("QGroupBox { border: 1px solid gray; border-radius: 5px; margin-top: 1ex; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 3px; }")
+
+        output_type_label = QLabel("Select Output Type:")
+        output_type_group_box_layout.addWidget(output_type_label)
+
+        self.output_type_button_group = QButtonGroup(self)
+        self.skypatcher_radio = QRadioButton("SkyPatcher YAML")
+        self.bos_ini_radio = QRadioButton("BOS INI")
+
+        output_type_group_box_layout.addWidget(self.skypatcher_radio)
+        output_type_group_box_layout.addWidget(self.bos_ini_radio)
+
+        self.output_type_button_group.addButton(self.skypatcher_radio)
+        self.output_type_button_group.addButton(self.bos_ini_radio)
+
+        # Set default selection (will be overridden by _load_config if config exists)
+        self.skypatcher_radio.setChecked(True)
+
+        main_layout.addWidget(output_type_group_box)
+
+        # Game Version Selection
+        game_version_group_box_layout = QVBoxLayout()
+        game_version_group_box = QWidget()
+        game_version_group_box.setLayout(game_version_group_box_layout)
+
+        game_version_label = QLabel("Select Game Version:")
+        game_version_group_box_layout.addWidget(game_version_label)
+
+        self.game_version_button_group = QButtonGroup(self)
+        self.skyrimse_radio = QRadioButton("Skyrim Special Edition")
+        self.skyrimvr_radio = QRadioButton("Skyrim VR") # Add this if you want VR selection
+
+        game_version_group_box_layout.addWidget(self.skyrimse_radio)
+        game_version_group_box_layout.addWidget(self.skyrimvr_radio) # Add this if you want VR selection
+        self.game_version_button_group.addButton(self.skyrimse_radio)
+        self.game_version_button_group.addButton(self.skyrimvr_radio) # Add this if you want VR selection
+
+        # Set default selection (will be overridden by _load_config if config exists)
+        self.skyrimse_radio.setChecked(True) # Default to SkyrimSE
+
+        main_layout.addWidget(game_version_group_box)
+
+        # Common Paths (Output Folder) - Export Script Path removed
+        paths_group_box_layout = QVBoxLayout()
+        paths_group_box = QWidget()
+        paths_group_box.setLayout(paths_group_box_layout)
+        
+        # Output Folder Path
+        output_folder_layout = QHBoxLayout()
+        output_folder_layout.addWidget(QLabel("Output Folder:"))
+        self.output_folder_lineEdit = QLineEdit()
+        self.output_folder_lineEdit.setReadOnly(True) # Make it read-only, user clicks button
+        output_folder_layout.addWidget(self.output_folder_lineEdit)
+        output_folder_button = QPushButton("Browse")
+        output_folder_button.clicked.connect(self._select_output_folder)
+        output_folder_layout.addWidget(output_folder_button)
+        paths_group_box_layout.addLayout(output_folder_layout)
+
+        # DELETED: Export Script Path block
+
+        main_layout.addWidget(paths_group_box)
+
+        # SkyPatcher YAML Specific Inputs
+        self.skypatcher_inputs_widget = QWidget()
+        skypatcher_layout = QVBoxLayout()
+        self.skypatcher_inputs_widget.setLayout(skypatcher_layout)
+
+        # xEdit JSON Path
+        xedit_json_layout = QHBoxLayout()
+        xedit_json_layout.addWidget(QLabel("Pre-exported xEdit JSON:"))
+        self.xedit_json_lineEdit = QLineEdit()
+        self.xedit_json_lineEdit.setReadOnly(True) # User browses for this
+        xedit_json_layout.addWidget(self.xedit_json_lineEdit)
+        xedit_json_button = QPushButton("Browse")
+        xedit_json_button.clicked.connect(self._select_xedit_json)
+        xedit_json_layout.addWidget(xedit_json_button)
+        skypatcher_layout.addLayout(xedit_json_layout)
+        
+        # Broad Category Swap Checkbox
+        self.broad_category_swap_checkbox = QCheckBox("Enable Broad Category Swap (experimental)")
+        self.broad_category_swap_checkbox.setChecked(False) # Default to unchecked
+        skypatcher_layout.addWidget(self.broad_category_swap_checkbox)
+
+        # Keywords LineEdit
+        keywords_layout = QHBoxLayout()
+        keywords_layout.addWidget(QLabel("Keywords (comma separated):"))
+        self.keywords_lineEdit = QLineEdit()
+        keywords_layout.addWidget(self.keywords_lineEdit)
+        skypatcher_layout.addLayout(keywords_layout)
+
+
+        # Categories
+        category_layout = QHBoxLayout()
+        category_layout.addWidget(QLabel("Category:"))
+        self.category_combo = QComboBox()
+        category_layout.addWidget(self.category_combo)
+        skypatcher_layout.addLayout(category_layout)
+
+        # Target Mod
+        target_mod_layout = QHBoxLayout()
+        target_mod_layout.addWidget(QLabel("Target Mod:"))
+        self.target_mod_combo = QComboBox()
+        target_mod_layout.addWidget(self.target_mod_combo)
+        skypatcher_layout.addLayout(target_mod_layout)
+
+        # Source Mod (Single)
+        source_mod_layout = QHBoxLayout()
+        source_mod_layout.addWidget(QLabel("Source Mod:"))
+        self.source_mod_combo = QComboBox()
+        source_mod_layout.addWidget(self.source_mod_combo)
+        skypatcher_layout.addLayout(source_mod_layout)
+
+        main_layout.addWidget(self.skypatcher_inputs_widget)
+
+
+        # BOS INI Specific Inputs
+        self.bos_ini_inputs_widget = QWidget()
+        bos_ini_layout = QVBoxLayout()
+        self.bos_ini_inputs_widget.setLayout(bos_ini_layout)
+
+        # IGPC JSON Path
+        igpc_path_layout = QHBoxLayout()
+        igpc_path_layout.addWidget(QLabel("IGPC JSON Path:"))
+        self.igpc_path_lineEdit = QLineEdit()
+        self.igpc_path_lineEdit.setReadOnly(True) # User browses for this
+        igpc_path_layout.addWidget(self.igpc_path_lineEdit)
+        igpc_path_button = QPushButton("Browse")
+        igpc_path_button.clicked.connect(self._select_igpc_json)
+        igpc_path_layout.addWidget(igpc_path_button)
+        bos_ini_layout.addLayout(igpc_path_layout)
+
+        main_layout.addWidget(self.bos_ini_inputs_widget)
+
+
+        # Action Buttons
+        button_layout = QHBoxLayout()
+        self.generate_single_btn = QPushButton("Generate Single YAML/INI")
+        self.generate_all_btn = QPushButton("Generate All Applicable YAMLs")
+        self.cancel_btn = QPushButton("Cancel")
+        
+        button_layout.addStretch(1) # Pushes buttons to the right
+        button_layout.addWidget(self.generate_single_btn)
+        button_layout.addWidget(self.generate_all_btn)
+        button_layout.addWidget(self.cancel_btn)
+        button_layout.addStretch(1)
+
+        main_layout.addLayout(button_layout)
+        self.setLayout(main_layout)
+
+    def _on_output_type_toggled(self):
+        """
+        Toggles visibility of UI elements based on selected output type (SkyPatcher YAML or BOS INI).
+        Also sets the self.selected_output_type and updates button states.
+        """
+        if self.skypatcher_radio.isChecked():
+            self.selected_output_type = "SkyPatcher YAML"
+            self.skypatcher_inputs_widget.setVisible(True)
+            self.bos_ini_inputs_widget.setVisible(False)
+            self.generate_single_btn.setText("Generate Single YAML")
+            self.generate_all_btn.setText("Generate All Applicable YAMLs")
+            self.generate_all_btn.setEnabled(True) # Always enabled for YAML
+        elif self.bos_ini_radio.isChecked():
+            self.selected_output_type = "BOS INI"
+            self.skypatcher_inputs_widget.setVisible(False)
+            self.bos_ini_inputs_widget.setVisible(True)
+            self.generate_single_btn.setText("Generate BOS INIs (All)") # Single button generates all for BOS INI
+            self.generate_all_btn.setText("Generate BOS INIs (All)") # Same for consistency
+            self.generate_all_btn.setEnabled(False) # Disable 'Generate All' if both buttons do same
+        
+        self._organizer_wrapper.log(0, f"SkyGen: Output type toggled to: {self.selected_output_type}")
+        self._save_config() # Save the selected output type immediately
+
+    def _populate_categories(self):
+        """
+        Populates the category QComboBox with a predefined list of common categories.
+        Removed dependency on categories.json.
+        """
+        self.category_combo.clear()
+        self.category_combo.addItem("") # Add an empty/default item
+        
+        # Hardcoded list of common categories (Signatures)
+        common_categories = [
+            "ARMA", "ARMO", "BOOK", "FLST", "FURN", "IMAD", "INGR", 
+            "KEYM", "LVLI", "MISC", "WEAP", "WOOP", "SPEL", "STAT", "QUST"
+        ]
+        
+        for category_name in sorted(common_categories):
+            self.category_combo.addItem(category_name)
+        self._organizer_wrapper.log(1, f"SkyGen: Populated categories with {len(common_categories)} common types.")
+        # self._save_config() # No need to save here, as selections are saved by _update_category
+
+    def _update_category(self):
+        """Updates the selected category based on QComboBox selection."""
+        self.selected_category = self.category_combo.currentText()
+        self._organizer_wrapper.log(0, f"SkyGen: Category selected: {self.selected_category}")
+        self._save_config() # Save the selected category
+
+    def _populate_mod_combos(self):
+        """
+        Populates the target and source mod QComboBoxes with active mods from MO2.
+        Adds game masters (ESMs) as well.
+        """
+        self.target_mod_combo.clear()
+        self.source_mod_combo.clear()
+        
+        self.target_mod_combo.addItem("") # Allow no selection
+        self.source_mod_combo.addItem("") # Allow no selection
+
+        mod_names = []
+        # Add active mods
+        for mod_name in self._organizer_wrapper.modList().allMods():
+            if self._organizer_wrapper.modList().state(mod_name) & mobase.ModState.ACTIVE:
+                display_name = self._organizer_wrapper.modList().displayName(mod_name)
+                mod_names.append(display_name)
+        
+        # Add active plugins that are ESMs (like Skyrim.esm, Update.esm, Dawnguard.esm)
+        for plugin_name in self._organizer_wrapper.pluginList().pluginNames():
+            if plugin_name.lower().endswith((".esm", ".esp", ".esl")):
+                if self._organizer_wrapper.pluginList().state(plugin_name) & mobase.PluginState.ACTIVE:
+                    if plugin_name not in mod_names: # Avoid duplicates if an ESM is also a mod
+                        mod_names.append(plugin_name)
+
+        mod_names.sort(key=str.lower) # Sort alphabetically
+        
+        self.target_mod_combo.addItems(mod_names)
+        self.source_mod_combo.addItems(mod_names)
+        self._organizer_wrapper.log(1, f"SkyGen: Populated mod combos with {len(mod_names)} active mods/ESMs.")
+        self._save_config() # Save the selected mod combos
+
+    def _get_plugin_name_from_mod_name(self, mo2_display_name: str, mo2_internal_mod_name: str) -> Optional[str]:
+        """
+        Attempts to find the plugin filename (.esp, .esm, .esl) associated with an MO2 mod display name.
+        Accounts for disambiguation map and user selection for multiple plugins in one mod.
+        """
+        self._organizer_wrapper.log(0, f"SkyGen: Resolving plugin name for MO2 display '{mo2_display_name}' (Internal: '{mo2_internal_mod_name}')")
+
+        if mo2_display_name.lower().endswith((".esm", ".esp", ".esl")):
+            # If the display name itself is a plugin, assume it's the plugin name
+            if self._organizer_wrapper.pluginList().state(mo2_display_name) & mobase.PluginState.ACTIVE:
+                self._organizer_wrapper.log(0, f"SkyGen: Detected display name is a plugin: {mo2_display_name}")
+                return mo2_display_name
+
+        # Check disambiguation map first
+        if mo2_display_name in self.plugin_disambiguation_map:
+            suggested_plugin = self.plugin_disambiguation_map[mo2_display_name]
+            if self._organizer_wrapper.pluginList().state(suggested_plugin) & mobase.PluginState.ACTIVE:
+                self._organizer_wrapper.log(0, f"SkyGen: Found plugin in disambiguation map for '{mo2_display_name}': {suggested_plugin}")
+                return suggested_plugin
+            else:
+                self._organizer_wrapper.log(2, f"SkyGen: WARNING: Disambiguation map entry '{mo2_display_name}': '{suggested_plugin}' is not an active plugin. Will prompt user.")
+
+
+        # Get files from the mod's directory within MO2's VFS
+        mod_path = Path(self._organizer_wrapper.modsPath()) / mo2_internal_mod_name
+        
+        potential_plugins = []
+        for root, _, files in os.walk(mod_path):
+            for file in files:
+                if file.lower().endswith((".esm", ".esp", ".esl")):
+                    full_plugin_name = file
+                    # Check if the plugin is active in MO2's plugin list
+                    if self._organizer_wrapper.pluginList().state(full_plugin_name) & mobase.PluginState.ACTIVE:
+                        potential_plugins.append(full_plugin_name)
+                        self._organizer_wrapper.log(0, f"SkyGen: Found active plugin in mod '{mo2_display_name}': {full_plugin_name}")
+
+        if not potential_plugins:
+            self.showWarning("Plugin Not Found", f"No active plugin (.esm, .esp, .esl) found for mod '{mo2_display_name}'. "
+                                                "Please ensure the mod contains an active plugin file.")
+            self._organizer_wrapper.log(2, f"SkyGen: No active plugins found for mod '{mo2_display_name}' (internal: {mo2_internal_mod_name}).")
+            return None
+        elif len(potential_plugins) == 1:
+            self._organizer_wrapper.log(0, f"SkyGen: Uniquely determined plugin for '{mo2_display_name}': {potential_plugins[0]}")
+            return potential_plugins[0]
+        else:
+            # Multiple plugins found, prompt user to choose
+            self._organizer_wrapper.log(1, f"SkyGen: Multiple active plugins found for '{mo2_display_name}': {', '.join(potential_plugins)}. Prompting user. ")
+            selected_plugin = self._prompt_for_plugin_selection(mo2_display_name, potential_plugins)
+            if selected_plugin:
+                # Add to disambiguation map for future runs
+                self.plugin_disambiguation_map[mo2_display_name] = selected_plugin
+                self._save_config()
+            return selected_plugin
+
+    def _prompt_for_plugin_selection(self, mod_display_name: str, plugins: list[str]) -> Optional[str]:
+        """
+        Displays a dialog to let the user select one plugin from a list.
+        """
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(f"Select Plugin for {mod_display_name}")
+        msg_box.setText(f"Multiple active plugins found for '{mod_display_name}'. Please select one:")
+        
+        list_widget = QListWidget()
+        list_widget.addItems(plugins)
+        list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        if plugins:
+            list_widget.setCurrentRow(0) # Select the first item by default
+
+        msg_box.layout().addWidget(list_widget)
+
+        select_button = msg_box.addButton("Select", QMessageBox.ButtonRole.AcceptRole)
+        cancel_button = msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        
+        msg_box.exec()
+
+        if msg_box.clickedButton() == select_button and list_widget.selectedItems():
+            selected_item = list_widget.selectedItems()[0].text()
+            self._organizer_wrapper.log(0, f"SkyGen: User selected plugin: {selected_item}")
+            return selected_item
+        else:
+            self._organizer_wrapper.log(0, "SkyGen: User cancelled plugin selection.")
+            return None
+
+
+    def _on_target_mod_selected(self):
+        """Updates the selected target mod."""
+        self.selected_target_mod_name = self.target_mod_combo.currentText()
+        self._organizer_wrapper.log(0, f"SkyGen: Target mod selected: {self.selected_target_mod_name}")
+        self._save_config()
+
+    def _on_source_mod_selected(self):
+        """Updates the selected source mod."""
+        self.selected_source_mod_name = self.source_mod_combo.currentText()
+        self._organizer_wrapper.log(0, f"SkyGen: Source mod selected: {self.selected_source_mod_name}")
+        self._save_config()
+
+    def _on_broad_category_swap_changed(self, state):
+        """Updates the broad_category_swap_enabled flag."""
+        self.broad_category_swap_enabled = (state == Qt.Checked)
+        self._organizer_wrapper.log(0, f"SkyGen: Broad Category Swap: {self.broad_category_swap_enabled}")
+        self._save_config()
+
+    def _select_output_folder(self):
+        """Opens a dialog to select the output folder."""
+        # Start browsing from MO2's overwrite path
+        initial_dir = str(Path(self._organizer_wrapper._organizer.overwritePath())) # Corrected access
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Output Folder", initial_dir)
+        if folder_path:
+            self.output_folder_path = folder_path
+            self.output_folder_lineEdit.setText(folder_path)
+            self._organizer_wrapper.log(0, f"SkyGen: Output folder selected: {self.output_folder_path}")
+            self._save_config()
+
+    def _select_xedit_json(self):
+        """Opens a dialog to select a pre-exported xEdit JSON file."""
+        json_path, _ = QFileDialog.getOpenFileName(self, "Select Pre-exported xEdit JSON",
+                                                   "", "JSON Files (*.json);;All Files (*)")
+        if json_path:
+            self.pre_exported_xedit_json_path = json_path
+            self.xedit_json_lineEdit.setText(json_path)
+            self._organizer_wrapper.log(0, f"SkyGen: Pre-exported xEdit JSON selected: {self.pre_exported_xedit_json_path}")
+            self._save_config()
+
+    def _select_igpc_json(self):
+        """Opens a dialog to select the IGPC JSON file."""
+        json_path, _ = QFileDialog.getOpenFileName(self, "Select IGPC JSON",
+                                                   "", "JSON Files (*.json);;All Files (*)")
+        if json_path:
+            self.igpc_json_path = json_path
+            self.igpc_path_lineEdit.setText(json_path)
+            self._organizer_wrapper.log(0, f"SkyGen: IGPC JSON selected: {self.igpc_json_path}")
+            self._save_config()
+
+
+    def _on_game_version_toggled(self):
+        """
+        Updates the self.selected_game_version based on the selected radio button.
+        """
+        if self.skyrimse_radio.isChecked():
+            self.selected_game_version = "SkyrimSE"
+        elif self.skyrimvr_radio.isChecked(): # For Skyrim VR
+            self.selected_game_version = "SkyrimVR"
+        self._organizer_wrapper.log(0, f"SkyGen: Game version selected: {self.selected_game_version}")
+        self._save_config() # Save the selected game version immediately
+
+
+    def _validate_inputs(self) -> bool:
+        """
+        Validates all necessary inputs before triggering generation.
+        Returns True if inputs are valid, False otherwise.
+        """
+        # Validate output folder
+        if not self.output_folder_path or not Path(self.output_folder_path).is_dir():
+            self.showError("Input Error", "Please select a valid Output Folder.")
+            return False
+
+        if self.skypatcher_radio.isChecked():
+            self.selected_output_type = "SkyPatcher YAML"
+            # Validate export script path if not using pre-exported JSON
+            # This check is now only for pre-exported JSON. The Pascal script path is hardcoded.
+            if not self.xedit_json_lineEdit.text().strip(): # If pre-exported JSON is NOT provided
+                # No longer checking self.full_export_script_path, as it's hardcoded and assumed to exist in xEdit's scripts
+                pass # Removed previous script path validation
+            
+            # Validate categories
+            if not self.selected_category:
+                self.showError("Input Error", "Please select a Category.")
+                return False
+
+            # Validate target mod
+            if not self.selected_target_mod_name:
+                self.showError("Input Error", "Please select a Target Mod.")
+                return False
+            
+            # Game version is fixed for now, but could be selectable later
+            # self.game_version = "SkyrimSE" # This line should now be removed from here, as _on_game_version_toggled sets it
+            # The value comes from the radio buttons now, already set by _on_game_version_toggled
+            if not self.selected_game_version:
+                self.showError("Input Error", "Please select a Game Version.")
+                return False
+
+
+        elif self.bos_ini_radio.isChecked():
+            self.selected_output_type = "BOS INI"
+            # Validate IGPC JSON Path
+            igpc_path_str = self.igpc_path_lineEdit.text().strip()
+            if not igpc_path_str:
+                self.showError("Input Error", "IGPC JSON Path cannot be empty for BOS INI generation.")
+                return False
+            if not Path(igpc_path_str).is_file():
+                self.showError("File Not Found", f"IGPC JSON file not found at: {igpc_path_str}")
+                return False
+            
+            # If valid, save to instance variable for retrieval by plugin.py
+            self.igpc_json_path = igpc_path_str
+
+        return True
+
+
+    def _on_generate_single_clicked(self):
+        """
+        Handles the "Generate Single YAML/INI" button click.
+        """
+        self._organizer_wrapper.log(1, "SkyGen: 'Generate Single' button clicked.")
+        self.generate_all = False # Ensure this is set for single generation
+        if self._validate_inputs():
+            if self.selected_output_type == "SkyPatcher YAML":
+                if not self.selected_source_mod_name:
+                    self.showError("Input Error", "Please select a Source Mod for single YAML generation.")
+                    return
+            self.accept() # Close dialog with QDialog.Accepted
+
+    def _on_generate_all_clicked(self):
+        """
+        Handles the "Generate All Applicable YAMLs" button click.
+        This button should only be enabled for SkyPatcher YAML mode.
+        """
+        self._organizer_wrapper.log(1, "SkyGen: 'Generate All' button clicked.")
+        self.generate_all = True # Ensure this is set for all generation
+        if self.selected_output_type == "BOS INI":
+            self.showWarning("Invalid Operation", "Generate All is not applicable for BOS INI. Use the single generate button.")
+            return
+        if self._validate_inputs():
+            self.accept() # Close dialog with QDialog.Accepted
+
+    def showError(self, title: str, message: str):
+        """Helper to show a critical error message box and log."""
+        self._organizer_wrapper.log(3, f"SkyGen: UI Error - {title}: {message}")
+        QMessageBox.critical(self, title, message)
+
+    def showWarning(self, title: str, message: str):
+        """Helper to show a warning message box and log."""
+        self._organizer_wrapper.log(2, f"SkyGen: UI Warning - {title}: {message}")
+        QMessageBox.warning(self, title, message)
+
+    def showInformation(self, title: str, message: str):
+        """Helper to show an information message box and log."""
+        self._organizer_wrapper.log(1, f"SkyGen: UI Info - {title}: {message}")
+        QMessageBox.information(self, title, message)
+
+    def reject(self):
+        """Overrides reject to log cancellation."""
+        self._organizer_wrapper.log(1, "SkyGen: Dialog cancelled by user.")
+        super().reject()
