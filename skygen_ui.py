@@ -2,7 +2,7 @@ import mobase
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QComboBox, QFileDialog, QCheckBox, QGroupBox, QRadioButton, QWidget, QSizePolicy,
-    QListWidget, QListWidgetItem # ADDED: Needed for plugin selection dialog
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize
@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any, Optional, Union
 import json
 import traceback
-import time # ADDED: For logging timestamps
+import time
+
 
 # Define custom log levels if not available from mobase directly
 # These mimic mobase's internal logging levels
@@ -51,7 +52,7 @@ class OrganizerWrapper:
                 self._log_file_handle = open(self._log_file_path, "a", encoding="utf-8")
                 self._log_initialized = True
             except Exception as e:
-                pass # ENSURED: This is 'pass'
+                pass
                 self._log_initialized = False
         else:
             self._log_initialized = False
@@ -71,12 +72,8 @@ class OrganizerWrapper:
                 self._log_file_handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {full_message}\n")
                 self._log_file_handle.flush() # Ensure it's written immediately
             except Exception as e:
-                pass # ENSURED: This is 'pass'
+                pass
                 self._log_initialized = False # Mark as uninitialized, try to re-open next time
-
-        # Original MO2 log call - COMMENTED OUT as it causes AttributeError in MO2 2.5.2
-        # if hasattr(self._organizer, 'log') and callable(getattr(self._organizer, 'log')):
-        #    self._organizer.log(mo2_log_level, full_message) # This is the problematic call - Confirmed commented out
 
     def close_log_file(self):
         """Closes the custom log file handle."""
@@ -86,7 +83,7 @@ class OrganizerWrapper:
                 self._log_file_handle = None
                 self._log_initialized = False
             except Exception as e:
-                print(f"SkyGen: ERROR closing log file: {e}") # Left as print for true last-ditch error
+                pass # CORRECTED: Changed print to pass
 
 
     def get_level_name(self, level: int) -> str:
@@ -99,26 +96,25 @@ class OrganizerWrapper:
         if level == MO2_LOG_TRACE: return "TRACE"
         return "UNKNOWN"
     
-    # ADDED DELEGATE METHODS
-    def pluginList(self): # ADDED
+    # ADDED DELEGATE METHODS (Ensuring they are present as per review)
+    def pluginList(self):
         return self._organizer.pluginList()
 
-    def getExecutables(self): # ADDED
+    def getExecutables(self):
         """Delegates to MO2's getExecutables if available, otherwise logs error."""
         try:
             return self._organizer.getExecutables()
         except AttributeError:
-            # This MO2 version does not have getExecutables, log it but don't crash
             self.log(3, "SkyGen: WARNING: MO2 'getExecutables' not available. Falling back to INI parsing.")
             return [] # Return empty list if not available
         except Exception as e:
             self.log(4, f"SkyGen: ERROR: Unexpected error calling getExecutables: {e}")
             return []
 
-    def modsPath(self): # ADDED
+    def modsPath(self):
         return self._organizer.modsPath()
 
-    def startApplication(self, name, args, cwd): # ADDED (already existed, confirming inclusion)
+    def startApplication(self, name, args, cwd):
         return self._organizer.startApplication(name, args, cwd)
 
     # Delegate other necessary organizer methods that don't involve logging
@@ -533,7 +529,7 @@ class SkyGenToolDialog(QDialog):
         """Populates the game version combobox with only supported game types (SkyrimSE, SkyrimVR)."""
         supported_games = {
             mobase.GameType.SSE: "SkyrimSE",
-            mobase.GameType.SkyrimVR: "SkyrimVR" # Only these two are supported by SkyPatcher
+            mobase.GameType.SkyrimVR: "SkyrimVR"
         }
         
         current_game_type = self.wrapped_organizer.gameInfo().type()
@@ -731,7 +727,7 @@ class SkyGenToolDialog(QDialog):
 
     def _load_config(self):
         """Loads saved settings from config.json."""
-        config_path = self._get_config_path() # CORRECTED PATH
+        config_path = self._get_config_path()
         if config_path.is_file():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
@@ -750,7 +746,6 @@ class SkyGenToolDialog(QDialog):
                     self.game_version_combo.findText(config.get("game_version", self.game_version_combo.currentText()))
                 )
                 
-                # CHANGED DEFAULT PATH for output_folder_path
                 self.output_folder_lineEdit.setText(config.get("output_folder_path", str(Path(self.wrapped_organizer.basePath()) / "overwrite")))
                 self.output_folder_path = self.output_folder_lineEdit.text()
 
@@ -770,21 +765,24 @@ class SkyGenToolDialog(QDialog):
 
                 # Apply BOS INI settings
                 self.igpc_json_lineEdit.setText(config.get("igpc_json_path", ""))
-                self.igpc_json_path = self.igpc_json_lineEdit.text() # Ensure internal variable is updated
+                self.igpc_json_path = self.igpc_json_lineEdit.text()
+
+                # Load xedit paths if they exist
+                self.determined_xedit_exe_path = Path(config.get("xedit_exe_path", "")) if config.get("xedit_exe_path") else None
+                self.determined_xedit_executable_name = config.get("xedit_mo2_name", "")
 
                 self.wrapped_organizer.log(1, "SkyGen: Settings loaded successfully.")
             except Exception as e:
                 self.wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to load settings from config.json: {e}")
         else:
             self.wrapped_organizer.log(1, "SkyGen: config.json not found, using default settings.")
-            # Set default output path if config.json does not exist
-            self.output_folder_path = str(Path(self.wrapped_organizer.basePath()) / "overwrite") # CHANGED DEFAULT PATH
+            self.output_folder_path = str(Path(self.wrapped_organizer.basePath()) / "overwrite")
             self.output_folder_lineEdit.setText(self.output_folder_path)
 
 
     def _save_config(self):
         """Saves current settings to config.json."""
-        config_path = self._get_config_path() # CORRECTED PATH
+        config_path = self._get_config_path()
         config_data = {
             "output_type": self.selected_output_type,
             "game_version": self.game_version_combo.currentText(),
@@ -795,11 +793,13 @@ class SkyGenToolDialog(QDialog):
             "keywords": self.keywords_lineEdit.text(),
             "broad_category_swap_enabled": self.broad_category_swap_checkbox.isChecked(),
             "generate_all": self.generate_all_checkbox.isChecked(),
-            "igpc_json_path": self.igpc_json_lineEdit.text(), # Existing line
-            "xedit_exe_path": str(self.determined_xedit_exe_path), # ADDED
-            "xedit_mo2_name": self.determined_xedit_executable_name # ADDED
+            "igpc_json_path": self.igpc_json_lineEdit.text(),
+            "xedit_exe_path": str(self.determined_xedit_exe_path) if self.determined_xedit_exe_path else "",
+            "xedit_mo2_name": self.determined_xedit_executable_name
         }
         try:
+            # Ensure the directory exists before writing
+            config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=4)
             self.wrapped_organizer.log(0, "SkyGen: Settings saved.")
@@ -811,15 +811,14 @@ class SkyGenToolDialog(QDialog):
     def showError(self, title: str, message: str):
         """Displays an error message box."""
         QMessageBox.critical(self, title, message)
-        self.wrapped_organizer.log(4, f"SkyGen: UI Error: {title} - {message}") # Log UI error
+        self.wrapped_organizer.log(4, f"SkyGen: UI Error: {title} - {message}")
 
     def showWarning(self, title: str, message: str):
         """Displays a warning message box."""
         QMessageBox.warning(self, title, message)
-        self.wrapped_organizer.log(3, f"SkyGen: UI Warning: {title} - {message}") # Log UI warning
+        self.wrapped_organizer.log(3, f"SkyGen: UI Warning: {title} - {message}")
 
     def showInformation(self, title: str, message: str):
         """Displays an information message box."""
         QMessageBox.information(self, title, message)
-        self.wrapped_organizer.log(2, f"SkyGen: UI Info: {title} - {message}") # Log UI info
-
+        self.wrapped_organizer.log(2, f"SkyGen: UI Info: {title} - {message}")
