@@ -18,48 +18,6 @@ MAX_POLL_TIME = 60 # Maximum seconds to wait for xEdit export to complete (incre
 
 # --- Utility Functions (Global helpers) ---
 
-def detect_root_mode(wrapped_organizer: Any, dialog_instance: Any) -> bool:
-    """Detect if Root Builder is in Root Mode and warn the user.
-    Uses wrapped_organizer for MO2 paths and dialog_instance for warnings.
-    """
-    try:
-        # CRITICAL FIX: Use wrapped_organizer.gameInfo().path() for the actual game directory
-        # This is the most reliable way to get the game's base installation path in MO2 2.5.2
-        game_dir = Path(wrapped_organizer.gameInfo().path())
-        data_dir = game_dir / "Data"
-
-        if not data_dir.exists():
-            wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find Data folder to check for Root Builder at: {data_dir}")
-            return False
-
-        # Check for Root Builder marker file (.rootbuilder)
-        marker_file = data_dir / ".rootbuilder"
-        if marker_file.exists():
-            dialog_instance.showWarning("Root Builder Detected",
-                                "SkyGen detected that Root Builder is in Root Mode.\n\n"
-                                "This may interfere with xEdit and cause incorrect patch results.\n"
-                                "Please disable Root Mode in Root Builder before using SkyGen.")
-            wrapped_organizer.log(2, f"SkyGen: WARNING: Found Root Builder marker at: {marker_file}")
-            return True
-
-        # Fallback: check for symlinks in Data folder (another sign of Root Mode)
-        suspicious_symlinks = any(
-            (data_dir / f).is_symlink()
-            for f in os.listdir(data_dir)
-            if f.lower().endswith(('.esp', '.esm', '.bsa'))
-        )
-        if suspicious_symlinks:
-            dialog_instance.showWarning("Root Builder Symlinks Detected",
-                                "SkyGen found symlinks in your Skyrim/Data folder — Root Mode may be active.\n"
-                                "For best results, please use VFS Mode in Root Builder.")
-            wrapped_organizer.log(2, "SkyGen: WARNING: Detected symlinks in Data — likely Root Mode.")
-            return True
-
-    except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed Root Mode detection: {e}\n{traceback.format_exc()}")
-    return False
-
-
 def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> dict | None:
     """
     Loads JSON data from a specified file path.
@@ -76,7 +34,7 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
             data = json.load(f)
             wrapped_organizer.log(1, f"SkyGen: Successfully loaded {description} from: {file_path}")
             return data
-    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e:
+    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e: # Added UnicodeDecodeError
         wrapped_organizer.log(3, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}")
         if dialog_instance: # Only show error if dialog_instance is provided
             dialog_instance.showError("File Read Error", f"Error loading {description} from {file_path}:\n{e}")
@@ -152,11 +110,11 @@ def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instanc
         return xedit_exe_path_ini, xedit_mo2_name_ini
     else:
         wrapped_organizer.log(3, "SkyGen: CRITICAL: xEdit executable not found via config.json or ModOrganizer.ini parsing. Please configure it manually in config.json.")
-        # CONFIRMED: The problematic getExecutables() call is NOT here.
+        # We explicitly do NOT attempt getExecutables() here as it causes AttributeError in MO2 2.5.2
         return None, None
 
 
-def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict, dialog_instance: Any) -> Optional[Path]:
+def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) -> Optional[Path]:
     """
     Attempts to determine the game root path.
     Prioritizes ModOrganizer.ini, then falls back to config_data.
@@ -184,24 +142,14 @@ def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict, di
                         return game_root_path # Return early if successful
                     else:
                         wrapped_organizer.log(2, f"SkyGen: WARNING: gamePath in ModOrganizer.ini ('{potential_path}') is not a valid directory. Attempting fallback.")
-                        if dialog_instance: # Check if dialog is available before showing
-                            dialog_instance.showWarning("Game Path Invalid", f"Game path in ModOrganizer.ini ('{potential_path}') is not a valid directory. Attempting fallback to config.json.")
                 else:
                     wrapped_organizer.log(2, f"SkyGen: WARNING: 'gamePath' not found or empty in [General] section of ModOrganizer.ini. Attempting fallback.")
-                    if dialog_instance: # Check if dialog is available before showing
-                        dialog_instance.showWarning("Game Path Missing", "'gamePath' not found or empty in [General] section of ModOrganizer.ini. Attempting fallback to config.json.")
             else:
                 wrapped_organizer.log(2, "SkyGen: WARNING: [General] section not found in ModOrganizer.ini. Attempting fallback.")
-                if dialog_instance: # Check if dialog is available before showing
-                    dialog_instance.showWarning("MO2 INI Section Missing", "[General] section not found in ModOrganizer.ini. Attempting fallback to config.json.")
         except Exception as e:
             wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to parse ModOrganizer.ini for game root: {e}. Attempting fallback.\n{traceback.format_exc()}")
-            if dialog_instance: # Check if dialog is available before showing
-                dialog_instance.showError("MO2 INI Parse Error", f"Failed to parse ModOrganizer.ini for game root: {e}. Attempting fallback to config.json.")
     else:
         wrapped_organizer.log(2, f"SkyGen: WARNING: ModOrganizer.ini not found at {mo2_ini_path}. Attempting fallback.")
-        if dialog_instance: # Check if dialog is available before showing
-            dialog_instance.showWarning("MO2 INI Not Found", f"ModOrganizer.ini not found at {mo2_ini_path}. Attempting fallback to config.json.")
 
     # --- Attempt 2: Fallback to config_data (from config.json) ---
     if config_data and "game_root_path" in config_data:
@@ -214,21 +162,13 @@ def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict, di
                 return game_root_path # Return if successful
             else:
                 wrapped_organizer.log(3, f"SkyGen: ERROR: game_root_path in config.json ('{potential_path}') is not a valid directory.")
-                if dialog_instance: # Check if dialog is available before showing
-                    dialog_instance.showError("Configured Game Path Invalid", f"Game root path in config.json ('{potential_path}') is not a valid directory.")
         else:
             wrapped_organizer.log(3, "SkyGen: ERROR: 'game_root_path' not found or empty in config.json.")
-            if dialog_instance: # Check if dialog is available before showing
-                dialog_instance.showError("Configured Game Path Missing", "'game_root_path' not found or empty in config.json.")
     else:
         wrapped_organizer.log(3, "SkyGen: ERROR: config.json data not available or 'game_root_path' missing for fallback.")
-        if dialog_instance: # Check if dialog is available before showing
-            dialog_instance.showError("Config Data Missing", "Config.json data not available or 'game_root_path' missing for fallback.")
 
     # If all attempts fail
     wrapped_organizer.log(3, "SkyGen: CRITICAL: Could not determine game root path from ModOrganizer.ini or config.json. Please configure 'gamePath' in MO2 settings or 'game_root_path' in plugin's config.json.")
-    if dialog_instance: # Check if dialog is available before showing
-        dialog_instance.showError("Game Root Not Found", "Could not determine game root path. Please configure 'gamePath' in MO2 settings or 'game_root_path' in plugin's config.json.")
     return None
 
 
@@ -262,7 +202,8 @@ def write_pas_script_to_xedit(script_path: Path, wrapped_organizer: Any):
     Writes the fixed Pascal script content to the specified path within xEdit's script directory.
     The content is now hardcoded in this function.
     """
-    script_content = """
+    # Define the Pascal script content as a multi-line Python f-string
+    script_content = f"""
 unit ExportPluginData;
 
 uses
@@ -749,7 +690,7 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
             wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write BOS INI for {plugin_name}: {e}")
 
     if generated_count > 0:
-        wrapped_organizer.log(1, "SkyGen: Successfully generated {generated_count} BOS INI file(s).")
+        wrapped_organizer.log(1, f"SkyGen: Successfully generated {generated_count} BOS INI file(s).")
         return True
     else:
         wrapped_organizer.log(1, "SkyGen: No BOS INI files were generated.")

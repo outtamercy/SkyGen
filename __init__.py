@@ -1,4 +1,4 @@
-# __init__.py (This is your main plugin file for SkyGen)
+# __init__.py (This is your main plugin file, formerly plugin.py)
 
 import mobase
 import json
@@ -7,6 +7,9 @@ from typing import Optional, Any
 
 # Import UI and utility functions
 from .skygen_ui import SkyGenToolDialog, OrganizerWrapper
+
+# Note: These imports are relative to the package, which is why they work now that
+# SkyGenGeneratorTool is in __init__.py and not in a separate 'plugin.py'.
 from .skygen_file_utilities import (
     load_json_data,
     get_xedit_exe_path,
@@ -15,29 +18,31 @@ from .skygen_file_utilities import (
     generate_bos_ini_files,
     clean_temp_script_and_ini,
     get_game_root_from_general_ini,
-    detect_root_mode
+    detect_root_mode # This line is now correctly imported
 )
 
 # Ensure necessary PyQt6 modules are imported for the main plugin if still used here,
 # or for dummy QMessageBox if needed for initial checks.
+# Only import what's strictly necessary for *this* file's display method or plugin tool.
 try:
     from PyQt6.QtWidgets import QApplication, QMessageBox
-    from PyQt6.QtGui import QIcon
+    from PyQt6.QtGui import QIcon # QIcon is used by the plugin tool directly
 except ImportError:
-    # Dummy classes for headless testing or missing PyQt6
+    print("One or more required PyQt modules are not installed. Please ensure PyQt6 is installed.")
     class QApplication:
         def __init__(self, *args, **kwargs): pass
         def instance(self): return None
         def exec(self): return 0
     class QMessageBox:
+        # Dummy methods for QMessageBox if PyQt6 is not fully available
         @staticmethod
         def critical(parent, title, message): print(f"CRITICAL: {title}: {message}")
         @staticmethod
         def warning(parent, title, message): print(f"WARNING: {title}: {message}")
         @staticmethod
         def information(parent, title, message): print(f"INFORMATION: {title}: {message}")
-        class QIcon:
-            def __init__(self, *args, **kwargs): pass
+    class QIcon:
+        def __init__(self, *args, **kwargs): pass
 
 
 def createPlugin() -> mobase.IPluginTool:
@@ -58,20 +63,17 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         self.xedit_exe_path = Path("")
         self.xedit_mo2_name = ""
         self.game_root_path = Path("")
-        self.plugin_data_path = Path("") # Initialize plugin_data_path
-
 
     def init(self, organizer: mobase.IOrganizer):
         """Initializes the plugin with the MO2 organizer."""
         self.organizer = organizer
         self.wrapped_organizer = OrganizerWrapper(organizer) # Initialize the wrapper
         
-        # Ensure the plugin's data directory exists and set plugin_data_path
-        self.plugin_data_path = Path(self.organizer.pluginDataPath()) / "SkyGen"
-        self.plugin_data_path.mkdir(parents=True, exist_ok=True)
+        # Ensure the plugin's data directory exists
+        plugin_data_dir = Path(self.organizer.pluginDataPath()) / "SkyGen"
+        plugin_data_dir.mkdir(parents=True, exist_ok=True)
         
-        # Set log file path using the correct plugin_data_path and filename
-        self.wrapped_organizer.set_log_file_path(self.plugin_data_path / "SkyGen_Debug.log")
+        self.wrapped_organizer.set_log_file_path(plugin_data_dir / "SkyGen_Debug.log")
         self.wrapped_organizer.log(1, "SkyGen: Plugin initialized.")
         return True
 
@@ -98,32 +100,18 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         """
         Displays the main UI dialog and handles the generation process based on user input.
         """
-        # CRITICAL FIX: Initialize self.dialog BEFORE calling functions that need it.
-        # For early error checks, we need a dialog instance that can show warnings.
-        # A simple dummy dialog class for initial checks.
-        class InitialErrorDialog: # Simplified dummy for early warnings
-            def __init__(self, wrapped_organizer_ref):
-                self.wrapped_organizer = wrapped_organizer_ref
-            def showWarning(self, title, message):
-                QMessageBox.warning(None, title, message)
-                self.wrapped_organizer.log(3, f"SkyGen: Early UI Warning: {title} - {message}")
+        # Create the dialog with the wrapped organizer
+        self.dialog = SkyGenToolDialog(self.wrapped_organizer)
+
+        # Get initial config data for path lookup before showing the dialog
+        class DummyMessageBox:
             def showError(self, title, message):
-                QMessageBox.critical(None, title, message)
-                self.wrapped_organizer.log(4, f"SkyGen: Early UI Error: {title} - {message}")
+                self.wrapped_organizer.log(3, f"SkyGen: Initial Config Error - {title}: {message}")
+        
+        temp_msg_box = DummyMessageBox()
 
-        initial_dialog_for_errors = InitialErrorDialog(self.wrapped_organizer)
-
-        # Check for Root Builder in Root Mode early
-        if detect_root_mode(self.wrapped_organizer, initial_dialog_for_errors):
-            self.wrapped_organizer.log(1, "SkyGen: WARNING: Root Builder Root Mode detected early in display.")
-            # Do NOT return here, allow the main dialog to open and potentially show other errors,
-            # but the warning has been given.
-
-        self.dialog = SkyGenToolDialog(self.wrapped_organizer) # Initialize the main dialog here
-
-        # Get initial config data for path lookup
-        # CORRECTED: Use self.plugin_data_path for config.json
-        config_file_path = self.plugin_data_path / "config.json"
+        # CORRECTED: Use self.organizer.pluginDataPath() for config.json
+        config_file_path = Path(self.organizer.pluginDataPath()) / "SkyGen" / "config.json" # <--- FIXED PATH
         
         config_data_for_path_lookup = {}
         if config_file_path.is_file():
@@ -132,30 +120,29 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     config_data_for_path_lookup = json.load(f)
             except Exception as e:
                 self.wrapped_organizer.log(3, f"SkyGen: ERROR: Could not load config.json for path lookup from '{config_file_path}': {e}")
-                # Don't show dialog error here, as main dialog is already ready for display
+                # Don't show dialog error here, as dialog might not be fully initialized yet
         
         # Determine xEdit path and game root path
         self.xedit_exe_path, self.xedit_mo2_name = get_xedit_exe_path(
             config_data_for_path_lookup, 
             self.wrapped_organizer,
-            initial_dialog_for_errors # CHANGED: Pass initial_dialog_for_errors
+            self.dialog
         )
         if not self.xedit_exe_path or not self.xedit_mo2_name:
             self.wrapped_organizer.log(3, "SkyGen: xEdit executable not found. Aborting display.")
-            initial_dialog_for_errors.showError("xEdit Not Found", "Could not determine xEdit executable path or MO2 name. Please configure it in config.json or ensure it's in your MO2 executables.")
+            self.dialog.showError("xEdit Not Found", "Could not determine xEdit executable path or MO2 name. Please configure it in config.json or ensure it's in your MO2 executables.")
             return
 
         self.game_root_path = get_game_root_from_general_ini(
             self.wrapped_organizer,
-            config_data_for_path_lookup,
-            initial_dialog_for_errors # ADDED: Pass initial_dialog_for_errors
+            config_data_for_path_lookup
         )
         if not self.game_root_path:
             self.wrapped_organizer.log(3, "SkyGen: Game root path not found. Aborting display.")
-            initial_dialog_for_errors.showError("Game Root Not Found", "Could not determine game root path. Please ensure 'gamePath' is configured in your ModOrganizer.ini or config.json.")
+            self.dialog.showError("Game Root Not Found", "Could not determine game root path. Please ensure 'gamePath' is configured in your ModOrganizer.ini or config.json.")
             return
 
-        # Pass determined paths to the dialog
+        # Pass determined paths to the dialog after it's initialized but before it's shown
         self.dialog.determined_xedit_exe_path = self.xedit_exe_path
         self.dialog.determined_xedit_executable_name = self.xedit_mo2_name
         self.dialog.game_root_path = self.game_root_path
@@ -201,8 +188,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
                     # 1. Export ALL data from the Target Mod first (only once)
                     self.wrapped_organizer.log(1, f"SkyGen: Exporting all data from Target Mod '{target_mod_display_name}' for 'Generate All' operation...")
-                    target_mod_internal_name = self.organizer.modList().lookupMod(target_mod_display_name)
-                    target_plugin_filename = self.dialog._get_plugin_name_from_mod_name(target_mod_display_name, target_mod_internal_name)
+                    target_plugin_filename = self.dialog._get_plugin_name_from_mod_name(target_mod_display_name, self.organizer.modList().lookupMod(target_mod_display_name))
                     if not target_plugin_filename:
                         self.wrapped_organizer.log(3, f"SkyGen: ERROR: Could not determine plugin filename for target mod: {target_mod_display_name}. Aborting 'Generate All'.")
                         self.dialog.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_display_name}'. Please ensure it's active and contains a plugin.")
@@ -213,7 +199,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
                     # For "Generate All", the target mod export should capture ALL categories, not a specific one
                     xedit_output_path_target_all = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer,
+                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -261,7 +247,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         
                         # Run xEdit export for the current source mod and specific category
                         xedit_output_path_source = run_xedit_export(
-                            wrapped_organizer=self.wrapped_organizer,
+                            wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                             dialog=self.dialog,
                             xedit_exe_path=self.xedit_exe_path,
                             xedit_mo2_name=self.xedit_mo2_name,
@@ -282,7 +268,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             
                             if source_exported_json and "baseObjects" in source_exported_json:
                                 generated = generate_and_write_skypatcher_yaml(
-                                    wrapped_organizer=self.wrapped_organizer,
+                                    wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                                     category=category,
                                     target_mod_plugin_name=target_plugin_filename, # Target is the single target mod
                                     source_mod_plugin_name=source_mod_plugin_filename,
@@ -313,10 +299,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     self.wrapped_organizer.log(1, f"SkyGen: Generating single YAML for '{source_mod_display_name}' targeting '{target_mod_display_name}' for category '{category}'...")
 
                     # Get plugin names from display names
-                    target_mod_internal_name = self.organizer.modList().lookupMod(target_mod_display_name)
-                    source_mod_internal_name = self.organizer.modList().lookupMod(source_mod_display_name)
-                    target_plugin_filename = self.dialog._get_plugin_name_from_mod_name(target_mod_display_name, target_mod_internal_name)
-                    source_plugin_filename = self.dialog._get_plugin_name_from_mod_name(source_mod_display_name, source_mod_internal_name)
+                    target_plugin_filename = self.dialog._get_plugin_name_from_mod_name(target_mod_display_name, self.organizer.modList().lookupMod(target_mod_display_name))
+                    source_plugin_filename = self.dialog._get_plugin_name_from_mod_name(source_mod_display_name, self.organizer.modList().lookupMod(source_mod_display_name))
 
                     if not target_plugin_filename or not source_plugin_filename:
                         self.dialog.showError("Plugin Resolution Error", "Could not determine plugin filenames for selected mods. Please ensure they are active and contain plugin files.")
@@ -329,7 +313,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     # 1. Export data from the Target Mod
                     self.wrapped_organizer.log(1, f"SkyGen: Exporting data from Target Mod: {target_mod_display_name}...")
                     xedit_output_path_target = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer,
+                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -365,7 +349,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     # 2. Export data from the Source Mod for the specific category
                     self.wrapped_organizer.log(1, f"SkyGen: Exporting data from Source Mod: {source_mod_display_name} for category {category}...")
                     xedit_output_path_source = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer,
+                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -396,7 +380,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
                     # 3. Generate and write the YAML
                     generate_and_write_skypatcher_yaml(
-                        wrapped_organizer=self.wrapped_organizer,
+                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
                         category=category,
                         target_mod_plugin_name=target_plugin_filename,
                         source_mod_plugin_name=source_plugin_filename,

@@ -83,7 +83,7 @@ class OrganizerWrapper:
                 self._log_file_handle = None
                 self._log_initialized = False
             except Exception as e:
-                pass # CORRECTED: Changed print to pass
+                pass
 
 
     def get_level_name(self, level: int) -> str:
@@ -132,6 +132,10 @@ class OrganizerWrapper:
     
     def modList(self):
         return self._organizer.modList()
+    
+    # ADDED: Delegate modPath to the underlying organizer
+    def modPath(self, mod_name: str) -> str:
+        return self._organizer.modPath(mod_name)
 
 
 # Dummy classes for PyQt6 if not available, ensuring the script can still be parsed
@@ -337,6 +341,7 @@ except ImportError:
             MouseFocusReason = 7
             WheelFocusReason = 8
             OtherFocusReason = 9
+        WindowContextHelpButtonHint = 0x00000008 # ADDED: Missing attribute for setWindowFlags
 
 # Main Dialog Class
 class SkyGenToolDialog(QDialog):
@@ -350,7 +355,11 @@ class SkyGenToolDialog(QDialog):
         self.wrapped_organizer = wrapped_organizer
         self.setWindowTitle("SkyGen - Automate Your Modding!")
         self.setFixedSize(500, 600) # Fixed size for consistency
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint) # Remove help button
+        # Make removal of context help button robust against missing Qt attribute
+        if hasattr(Qt, 'WindowContextHelpButtonHint'): # ADDED CONDITIONAL CHECK
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint) # Remove help button
+        else:
+            self.wrapped_organizer.log(2, "SkyGen: WARNING: Qt.WindowContextHelpButtonHint not found. Skipping context help button removal.")
         
         # Internal state variables
         self.selected_output_type = "SkyPatcher YAML" # Default
@@ -364,6 +373,9 @@ class SkyGenToolDialog(QDialog):
         self.determined_xedit_executable_name: str = ""
         self.game_root_path: Optional[Path] = None
         self.generate_all = False # For 'Generate All' checkbox state
+        self.executables_dict = {} # ADDED: Initialize dictionary to store executables from INI parsing
+        self.pre_exported_xedit_json_path = "" # Added this as it's referenced in plugin.py
+
 
         self._setup_ui()
         self._populate_game_versions()
@@ -526,29 +538,47 @@ class SkyGenToolDialog(QDialog):
 
 
     def _populate_game_versions(self):
-        """Populates the game version combobox with only supported game types (SkyrimSE, SkyrimVR)."""
-        supported_games = {
-            mobase.GameType.SSE: "SkyrimSE",
-            mobase.GameType.SkyrimVR: "SkyrimVR"
-        }
+        """Populates the game version combobox with only supported game types (SkyrimSE, SkyrimVR).
+        This version is robust against mobase.GameType not being available during early plugin load.
+        """
+        supported_games_map = {}
         
-        current_game_type = self.wrapped_organizer.gameInfo().type()
-        
+        # Check if mobase.GameType is available. If not, use hardcoded strings directly.
+        if hasattr(mobase, 'GameType'):
+            self.wrapped_organizer.log(0, "SkyGen: DEBUG: mobase.GameType found. Using mobase enum values.")
+            supported_games_map[mobase.GameType.SSE] = "SkyrimSE"
+            supported_games_map[mobase.GameType.SkyrimVR] = "SkyrimVR"
+        else:
+            self.wrapped_organizer.log(3, "SkyGen: WARNING: mobase.GameType not found. Using hardcoded game versions as fallback.")
+            # If GameType enum is not available, default to common names with arbitrary keys
+            supported_games_map[0] = "SkyrimSE" # Using 0 and 1 as arbitrary keys for the map
+            supported_games_map[1] = "SkyrimVR"
+            
+        current_game_type = None
+        # Safely attempt to get the current game type from the organizer
+        try:
+            if hasattr(self.wrapped_organizer, 'gameInfo') and self.wrapped_organizer.gameInfo() is not None and hasattr(self.wrapped_organizer.gameInfo(), 'type'):
+                current_game_type = self.wrapped_organizer.gameInfo().type()
+        except Exception as e:
+            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.")
+
         self.game_version_combo.clear()
         
-        # Add current game first if it's supported
-        current_game_name = supported_games.get(current_game_type)
+        # Logic to add current game first, if it's supported and detectable
+        current_game_name = supported_games_map.get(current_game_type)
+        
         if current_game_name:
             self.game_version_combo.addItem(current_game_name)
             self.selected_game_version = current_game_name
             
-            for game_type, name in supported_games.items():
-                if name != current_game_name:
-                    self.game_version_combo.addItem(name)
+            # Add other supported games, excluding the one already added
+            other_game_names = [name for key, name in supported_games_map.items() if name != current_game_name]
+            self.game_version_combo.addItems(sorted(other_game_names))
         else:
-            # If current game is not supported, just add all supported ones
-            self.game_version_combo.addItems(sorted(supported_games.values()))
-            if supported_games:
+            # If current game is not supported or could not be determined, just add all sorted supported games
+            sorted_names = sorted(supported_games_map.values())
+            self.game_version_combo.addItems(sorted_names)
+            if sorted_names:
                 self.selected_game_version = self.game_version_combo.currentText() # Set initial selection to first item
         
         self.wrapped_organizer.log(0, f"SkyGen: Populated game versions: {self.game_version_combo.currentText()}")
@@ -620,17 +650,19 @@ class SkyGenToolDialog(QDialog):
     def _get_plugin_name_from_mod_name(self, display_name: str, internal_name: str) -> Optional[str]:
         """
         Attempts to find the plugin filename for a given mod display name or internal name.
-        Iterates through files in the mod's base directory and its plugins.txt entry.
+        Uses organizer.modPath for robustness.
         """
-        # First, check plugins.txt for an exact match or a case-insensitive match
-        # This approach is less reliable than checking actual mod contents through MO2's VFS
-        
-        # Get the actual data path for the mod (which uses MO2's VFS)
-        mod_origin_path = Path(self.wrapped_organizer.modList().modPath(internal_name))
-        
+        try:
+            # Get the actual data path for the mod using the organizer's modPath method
+            # This is more reliable than modList().modPath() for some MO2 versions.
+            mod_origin_path = Path(self.wrapped_organizer.modPath(internal_name)) # CORRECTED THIS LINE
+        except Exception as e:
+            self.wrapped_organizer.log(3, f"SkyGen: ERROR: Could not get mod path for '{display_name}' ({internal_name}) from organizer: {e}")
+            return None
+            
         # Check if the mod path exists and is a directory
         if not mod_origin_path.is_dir():
-            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Mod path for '{display_name}' ({internal_name}) is not a directory: {mod_origin_path}")
+            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Mod path for '{display_name}' ({internal_name}) is not a directory or does not exist: {mod_origin_path}")
             return None
 
         # Iterate through files in the mod's directory to find an ESP/ESM/ESL
