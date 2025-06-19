@@ -2,13 +2,13 @@
     "output_type": "SkyPatcher YAML",
     "game_version": "SkyrimSE",
     "output_folder_path": "",
-    "target_mod_name": "JK's and Redbag's Dragonsreach Patch",
-    "source_mod_name": "EEKs Immersive Whiterun",
-    "category": "STAT",
+    "target_mod_name": "AddItemMenuSE AE Fixed",
+    "source_mod_name": "AddItemMenuSE AE Fixed",
+    "category": "",
     "keywords": "",
     "broad_category_swap_enabled": false,
     "generate_all": false,
     "igpc_json_path": "",
-    "xedit_exe_path": "H:\\Truth Special Edition\\tools\\SSEEdit\\SSEEdit.exe",
-    "xedit_mo2_name": "SSEEdit"
+    "xedit_exe_path": "",
+    "xedit_mo2_name": ""
 }

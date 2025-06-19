@@ -627,31 +627,6 @@ def run_xedit_export(
     # Ensure the current working directory for xEdit is the game's root directory
     # This is crucial for xEdit to find game data correctly.
     xedit_cwd = str(game_root_path)
-
-    # NEW: Pre-load xEdit to force MO2 VFS engagement
-    wrapped_organizer.log(0, "SkyGen: DEBUG: Pre-loading xEdit to force MO2 VFS engagement...")
-    # Launch xEdit briefly in a hidden, autoloading mode to prime the VFS
-    preload_args = [
-        f"-{game_version.replace('Skyrim', '').upper()}" if game_version and game_version.startswith("Skyrim") else "",
-        "-quickshow",  # Keep UI hidden
-        "-autoload",   # Load plugins automatically
-        "-exit"        # Exit immediately after loading
-    ]
-    preload_args = [arg for arg in preload_args if arg] # Filter out empty strings
-    
-    preload_success = wrapped_organizer._organizer.startApplication(
-        xedit_mo2_name, # Use the actual xEdit executable name
-        preload_args,
-        str(game_root_path) # Use game root as CWD
-    )
-    if not preload_success:
-        wrapped_organizer.log(2, "SkyGen: WARNING: xEdit pre-load for VFS engagement failed. Proceeding anyway.")
-    else:
-        # Give MO2 a moment to fully engage the VFS after the preload process
-        time.sleep(1.0) # Increased sleep for more robust VFS engagement
-        wrapped_organizer.log(0, "SkyGen: DEBUG: xEdit pre-load executed, VFS should be engaged.")
-
-
     wrapped_organizer.log(1, f"SkyGen: Launching xEdit '{xedit_mo2_name}' for export...")
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit binary: {xedit_exe_path}")
     # The `ini_script_args` variable is no longer needed after these changes,
