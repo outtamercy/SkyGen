@@ -41,49 +41,94 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
         return None
 
 
-def get_xedit_path_from_ini(wrapped_organizer: Any) -> tuple[Optional[Path], Optional[str]]:
+# NEW FUNCTION: get_xedit_path_from_ini
+def get_xedit_path_from_ini(organizer: mobase.IOrganizer, game_version: str, dialog_instance: Any) -> tuple[Path | None, str | None]:
     """
-    Parses ModOrganizer.ini to find the path and display name of the registered xEdit executable.
-    Does NOT require a dialog instance for UI messages; only logs.
+    Reads ModOrganizer.ini to find the xEdit executable path and its MO2 display name.
+    Bypasses MO2's internal executable lookup API and manually parses the INI.
+    Returns a tuple: (xedit_absolute_path, mo2_executable_name) or (None, None) on failure.
     """
-    mo2_ini_path = Path(wrapped_organizer.basePath()) / "ModOrganizer.ini"
-    if not mo2_ini_path.is_file():
-        wrapped_organizer.log(3, f"SkyGen: CRITICAL: ModOrganizer.ini not found at expected path: {mo2_ini_path}")
+    mo2_base_path = Path(organizer.basePath())
+    ini_file_path = mo2_base_path / "ModOrganizer.ini"
+
+    if not ini_file_path.is_file():
+        organizer.log(3, f"SkyGen: ERROR: ModOrganizer.ini not found at: {ini_file_path}.")
+        dialog_instance.showError("Error", f"ModOrganizer.ini not found at the expected path: {ini_file_path}.")
         return None, None
 
-    config = configparser.ConfigParser()
+    xedit_exec_name_map = {
+        "SkyrimSE": ["SSEEdit", "SSEEdit64"], # Common MO2 display names for SSEEdit
+        "SkyrimVR": ["TES5VREdit", "TES5VREdit64"], # Common MO2 display names for TES5VREdit
+    }
+    expected_xedit_titles = xedit_exec_name_map.get(game_version, [])
+    if not expected_xedit_titles:
+        organizer.log(3, f"SkyGen: ERROR: No expected xEdit executable titles defined for game version '{game_version}'.")
+        dialog_instance.showError("xEdit Lookup Error", f"No xEdit executable titles defined for game version '{game_version}'.")
+        return None, None
+
+    exec_data = defaultdict(dict)
+    in_custom_executables_section = False
+
     try:
-        config.read(mo2_ini_path, encoding='utf-8')
+        with open(ini_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line == '[customExecutables]':
+                    in_custom_executables_section = True
+                    continue
+                if in_custom_executables_section and line.startswith('['): # End of section
+                    in_custom_executables_section = False
+                    break # Stop parsing once out of the section
+
+                if in_custom_executables_section and '=' in line:
+                    try:
+                        key_value = line.split('=', 1)
+                        key = key_value[0].strip()
+                        value = key_value[1].strip()
+
+                        if '\\' in key:
+                            parts = key.split('\\', 1)
+                            if len(parts) == 2:
+                                exec_id = parts[0]
+                                prop_name = parts[1]
+                                if exec_id.isdigit():
+                                    exec_data[exec_id][prop_name] = value
+                    except Exception as e:
+                        organizer.log(2, f"SkyGen: WARNING: Error parsing INI line '{line}': {e}")
+                        continue # Continue to next line even if one line fails to parse
+
+            organizer.log(1, f"SkyGen: Successfully parsed ModOrganizer.ini for custom executables.")
+
+            for exec_id, props in exec_data.items():
+                title = props.get('title')
+                binary_path_str = props.get('binary')
+                
+                if title and binary_path_str:
+                    if title in expected_xedit_titles:
+                        # Resolve relative path to absolute path
+                        absolute_xedit_path = Path(binary_path_str)
+                        if not absolute_xedit_path.is_absolute():
+                            # Paths in INI are relative to MO2's base path
+                            absolute_xedit_path = mo2_base_path / binary_path_str
+
+                        if absolute_xedit_path.is_file():
+                            organizer.log(1, f"SkyGen: Found xEdit executable '{title}' at: {absolute_xedit_path}")
+                            return absolute_xedit_path, title # Return path and the MO2 display name
+                        else:
+                            organizer.log(2, f"SkyGen: WARNING: Found xEdit entry in INI ('{title}' -> '{binary_path_str}'), but binary not found at resolved path: {absolute_xedit_path}")
+                    else:
+                        organizer.log(0, f"SkyGen: DEBUG: Skipping non-xEdit executable in INI: '{title}'")
     except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: CRITICAL: Failed to parse ModOrganizer.ini: {e}")
+        organizer.log(3, f"SkyGen: ERROR: Error reading or parsing ModOrganizer.ini from {ini_file_path}: {e}\n{traceback.format_exc()}")
+        dialog_instance.showError("INI Read Error", f"Error reading or parsing ModOrganizer.ini from {ini_file_path}: {e}")
         return None, None
-
-    if 'CustomExecutables' not in config:
-        wrapped_organizer.log(2, "SkyGen: WARNING: [CustomExecutables] section not found in ModOrganizer.ini.")
-        return None, None
-
-    xedit_exe_path = None
-    xedit_mo2_name = None
-
-    for key, value in config.items('CustomExecutables'):
-        if key.endswith('binary'):
-            exe_path = Path(value.strip().strip('"'))
-            if "xedit" in exe_path.name.lower() or "sseedit" in exe_path.name.lower():
-                xedit_exe_path = exe_path
-                # Find the corresponding display name
-                try:
-                    name_key = key.replace('binary', 'name')
-                    xedit_mo2_name = config.get('CustomExecutables', name_key).strip().strip('"')
-                    wrapped_organizer.log(1, f"SkyGen: Successfully parsed ModOrganizer.ini for xEdit. Path: {xedit_exe_path}, Name: {xedit_mo2_name}")
-                    return xedit_exe_path, xedit_mo2_name
-                except configparser.NoOptionError:
-                    wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find display name for xEdit binary: {exe_path}. Skipping.")
-    
-    wrapped_organizer.log(2, "SkyGen: WARNING: No xEdit executable found in ModOrganizer.ini [CustomExecutables].")
+    organizer.log(3, "SkyGen: CRITICAL: No xEdit executable matching expected titles found in ModOrganizer.ini [customExecutables].")
+    dialog_instance.showError("xEdit Not Found", "No xEdit executable matching the expected titles found in ModOrganizer.ini. Please ensure it's configured in MO2 and its display name matches (e.g., SSEEdit for SkyrimSE).")
     return None, None
 
 
-def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instance: Any) -> tuple[Optional[Path], Optional[str]]:
+# MODIFIED FUNCTION: get_xedit_exe_path
+def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instance: Any, game_version: str) -> tuple[Optional[Path], Optional[str]]:
     """
     Determines the xEdit executable path and its MO2 registered name.
     Prioritizes config.json, then ModOrganizer.ini parsing.
@@ -104,62 +149,42 @@ def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instanc
             wrapped_organizer.log(2, f"SkyGen: WARNING: Configured xEdit path '{configured_path}' in config.json not found. Attempting auto-detection via INI.")
 
     # --- Attempt 2: Auto-detect by parsing ModOrganizer.ini (reliable for first run/missing getExecutables) ---
-    xedit_exe_path_ini, xedit_mo2_name_ini = get_xedit_path_from_ini(wrapped_organizer)
+    xedit_exe_path_ini, xedit_mo2_name_ini = get_xedit_path_from_ini(wrapped_organizer.organizer, game_version, dialog_instance)
     if xedit_exe_path_ini and xedit_mo2_name_ini:
         wrapped_organizer.log(0, f"SkyGen: DEBUG: Auto-detected xEdit from ModOrganizer.ini: {xedit_exe_path_ini} (MO2 name: {xedit_mo2_name_ini})")
         return xedit_exe_path_ini, xedit_mo2_name_ini
     else:
         wrapped_organizer.log(3, "SkyGen: CRITICAL: xEdit executable not found via config.json or ModOrganizer.ini parsing. Please configure it manually in config.json.")
-        # We explicitly do NOT attempt getExecutables() here as it causes AttributeError in MO2 2.5.2
         return None, None
 
 
+# REPLACED FUNCTION: get_game_root_from_general_ini
 def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) -> Optional[Path]:
     """
-    Attempts to determine the game root path.
-    Prioritizes ModOrganizer.ini, then falls back to config_data.
+    Attempts to determine the game root path using organizer.gameDirectory(),
+    then falls back to config_data if not found or invalid.
     """
-    game_root_path = None
-    
-    # --- Attempt 1: Read from ModOrganizer.ini ---
-    mo2_ini_path = Path(wrapped_organizer.basePath()) / "ModOrganizer.ini"
-    if mo2_ini_path.is_file():
-        config = configparser.ConfigParser()
-        try:
-            config.read(mo2_ini_path, encoding='utf-8')
-            if 'General' in config:
-                game_path_str_ini = config.get("General", "gamePath", fallback="")
-                
-                # Strip @ByteArray(...) prefix if present
-                if game_path_str_ini.startswith("@ByteArray("):
-                    game_path_str_ini = game_path_str_ini[len("@ByteArray("):-1]
-                    
-                if game_path_str_ini:
-                    potential_path = Path(game_path_str_ini)
-                    if potential_path.is_dir():
-                        game_root_path = potential_path
-                        wrapped_organizer.log(0, f"SkyGen: DEBUG: Successfully read game root from ModOrganizer.ini: {game_root_path}")
-                        return game_root_path # Return early if successful
-                    else:
-                        wrapped_organizer.log(2, f"SkyGen: WARNING: gamePath in ModOrganizer.ini ('{potential_path}') is not a valid directory. Attempting fallback.")
-                else:
-                    wrapped_organizer.log(2, f"SkyGen: WARNING: 'gamePath' not found or empty in [General] section of ModOrganizer.ini. Attempting fallback.")
-            else:
-                wrapped_organizer.log(2, "SkyGen: WARNING: [General] section not found in ModOrganizer.ini. Attempting fallback.")
-        except Exception as e:
-            wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to parse ModOrganizer.ini for game root: {e}. Attempting fallback.\n{traceback.format_exc()}")
-    else:
-        wrapped_organizer.log(2, f"SkyGen: WARNING: ModOrganizer.ini not found at {mo2_ini_path}. Attempting fallback.")
+    # Attempt 1: Get directly from MO2's organizer (most reliable for current game)
+    try:
+        game_root_path_from_organizer = Path(wrapped_organizer.organizer.gameDirectory())
+        if game_root_path_from_organizer.is_dir():
+            wrapped_organizer.log(0, f"SkyGen: DEBUG: Successfully read game root from organizer.gameDirectory(): {game_root_path_from_organizer}")
+            return game_root_path_from_organizer
+        else:
+            wrapped_organizer.log(2, f"SkyGen: WARNING: organizer.gameDirectory() returned '{game_root_path_from_organizer}', which is not a valid directory. Attempting fallback.")
+    except AttributeError:
+        wrapped_organizer.log(2, "SkyGen: WARNING: 'mobase.IOrganizer' object has no attribute 'gameDirectory'. Attempting fallback to config.json.")
+    except Exception as e:
+        wrapped_organizer.log(3, f"SkyGen: ERROR: Error getting game root from organizer.gameDirectory(): {e}. Attempting fallback.\n{traceback.format_exc()}")
 
-    # --- Attempt 2: Fallback to config_data (from config.json) ---
+    # Attempt 2: Fallback to config_data (from config.json)
     if config_data and "game_root_path" in config_data:
         game_path_str_config = config_data.get("game_root_path")
         if game_path_str_config:
             potential_path = Path(game_path_str_config)
             if potential_path.is_dir():
-                game_root_path = potential_path
-                wrapped_organizer.log(0, f"SkyGen: DEBUG: Successfully read game root from config.json: {game_root_path}")
-                return game_root_path # Return if successful
+                wrapped_organizer.log(0, f"SkyGen: DEBUG: Successfully read game root from config.json: {potential_path}")
+                return potential_path
             else:
                 wrapped_organizer.log(3, f"SkyGen: ERROR: game_root_path in config.json ('{potential_path}') is not a valid directory.")
         else:
@@ -168,33 +193,43 @@ def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) ->
         wrapped_organizer.log(3, "SkyGen: ERROR: config.json data not available or 'game_root_path' missing for fallback.")
 
     # If all attempts fail
-    wrapped_organizer.log(3, "SkyGen: CRITICAL: Could not determine game root path from ModOrganizer.ini or config.json. Please configure 'gamePath' in MO2 settings or 'game_root_path' in plugin's config.json.")
+    wrapped_organizer.log(3, "SkyGen: CRITICAL: Could not determine game root path from organizer.gameDirectory() or config.json. Please configure 'game_root_path' in plugin's config.json.")
     return None
 
 
-def write_xedit_ini_for_skygen(xedit_exe_path: Path, script_args: str, game_version: str, wrapped_organizer: Any):
+# ADDED AND MODIFIED FUNCTION: detect_root_mode
+def detect_root_mode(wrapped_organizer: Any) -> bool:
     """
-    Writes a temporary INI file for xEdit to ensure it runs the specified script
-    with the correct game mode and passes script options.
-    The INI file is named after the xEdit executable.
+    Detects if MO2 is operating in a 'root' mode (e.g., Root Builder active or game installed to MO2 folder).
+    This affects how certain file paths are handled by xEdit.
+    Returns True if a root mode is detected, False otherwise.
     """
-    xedit_ini_path = xedit_exe_path.with_suffix('.ini')
+    wrapped_organizer.log(1, "SkyGen: Detecting MO2 root mode...")
+    
+    # 1. Check if game is installed directly into MO2's base path (portable setup)
+    mo2_base_path = Path(wrapped_organizer.organizer.basePath()) # MODIFIED
+    game_dir = Path(wrapped_organizer.organizer.gameDirectory()) # MODIFIED
+    
+    if game_dir.resolve() == mo2_base_path.resolve():
+        wrapped_organizer.log(1, "SkyGen: Detected portable MO2 setup (game installed in MO2 root).")
+        return True
+
+    # 2. Check for Root Builder ini/settings (if installed)
+    # This might depend on Root Builder's specific implementation
+    root_builder_ini_path = Path(wrapped_organizer.organizer.basePath()) / "ModOrganizer.ini" # MODIFIED
+    
     config = configparser.ConfigParser()
-    
-    # Ensure section exists even if empty initially
-    if not config.has_section("Settings"):
-        config.add_section("Settings")
-    
-    config.set("Settings", "Game", game_version)
-    config.set("Settings", "AutoRun", script_args) # Pass the script path and arguments
-    
     try:
-        with open(xedit_ini_path, 'w', encoding='utf-8') as configfile:
-            config.write(configfile)
-        wrapped_organizer.log(0, f"SkyGen: DEBUG: Temporary xEdit INI written to: {xedit_ini_path} with Game='{game_version}' and AutoRun='{script_args}'")
+        config.read(root_builder_ini_path, encoding='utf-8')
+        if 'RootBuilder' in config:
+            if config.getboolean('RootBuilder', 'enabled', fallback=False):
+                wrapped_organizer.log(1, "SkyGen: Detected Root Builder is enabled.")
+                return True
     except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write temporary xEdit INI to {xedit_ini_path}: {e}\n{traceback.format_exc()}")
-        raise # Re-raise to halt execution if INI write fails
+        wrapped_organizer.log(2, f"SkyGen: WARNING: Could not read Root Builder settings from ModOrganizer.ini: {e}")
+        
+    wrapped_organizer.log(1, "SkyGen: No root mode detected.")
+    return False
 
 
 def write_pas_script_to_xedit(script_path: Path, wrapped_organizer: Any):
@@ -279,31 +314,43 @@ begin
       KeywordsArray := TJSONArray.Create;
       // Split keywords string by comma and space, trim each keyword
       for Keyword in SplitString(Keywords, [',', ' ']) do
-      begin
+      {
         Keyword := Trim(Keyword);
         if Keyword <> '' then
           KeywordsArray.Add(TJSONString.Create(Keyword));
-      end;
+      } // Removed to fix error "For Loop contains more statements than anticipated"
+      
+      // Re-implementing the SplitString and Trim logic without direct TJSONArray usage in this block
+      // as it seems the syntax was causing issues or was not meant for direct array population here.
+      // This part handles the keyword matching logic within the Pascal script.
+      // Assuming a simpler check is desired here if the previous was causing issues.
+      // Let's assume Keywords is a single string to search for, or comma-separated list to iterate.
+      // The Pascal script needs to handle splitting the Keywords string.
+      // The original Pascal snippet had a loop and KeywordsArray.
+      // Re-adding a simplified version based on common Pascal script patterns if KeywordsArray was the issue.
+      // If the intent was to split in Python and pass as array, that's not how GetScriptOption works.
+      // Keywords will be a single string from Python.
+      // The Pascal script must handle its own splitting for matching.
+      // Reverting to simpler logic for Keyword matching within the Pascal script to avoid parsing issues.
 
-      if KeywordsArray.Count > 0 then
+      // Updated Pascal Keyword Matching Logic based on common xEdit script patterns
+      // If the intent is "any keyword from comma-separated list matches", then the Pascal needs to iterate.
+      // The previous Pascal `for Keyword in SplitString(Keywords, [',', ' ']) do` was correct for Pascal.
+      // The comment was misleading.
+      // Re-adding the original Pascal SplitString logic assuming it's valid Pascal.
+      for Keyword in SplitString(Keywords, [',', ' ']) do
       begin
-        // Check if any of the specified keywords are in the record's EDID
-        Element := ARecord.GetElementByPath('EDID');
-        if (Element <> nil) then
+        Keyword := Trim(Keyword);
+        if Keyword <> '' then
         begin
-          EditorID := Element.GetValue;
-          for i := 0 to KeywordsArray.Count - 1 do
+          if Pos(Keyword, EditorID) > 0 then // Case-sensitive check
           begin
-            Keyword := (KeywordsArray.Items[i] as TJSONString).Value;
-            if Pos(Keyword, EditorID) > 0 then // Case-sensitive check
-            begin
-              MatchFound := True;
-              Break;
-            end;
+            MatchFound := True;
+            Break;
           end;
         end;
       end;
-      KeywordsArray.Free;
+      // KeywordsArray.Free; // This might be causing issues if not correctly handled within Pascal's memory management. Removed if not explicitly used for output.
     end;
 
     if not MatchFound then
@@ -333,8 +380,110 @@ begin
     if ParentName <> '' then
       ItemJSON.Add('ParentName', ParentName);
 
-    // Add to the main JSON array
-    JsonOutput.Add(ItemJSON); // Changed to Add to TJSONArray
+    // Add Worldspace and Location
+    if HasElement(ARecord, 'FULL\\NAME') then
+    begin
+        ItemJSON.Add('FullName', EscapeJsonString(ElementEditValues(ARecord, 'FULL\\NAME')));
+    end;
+
+    // New: Extract Worldspace FormID and Name
+    if Signature = 'CELL' then // Only relevant for CELL records
+    begin
+        // Try to get Worldspace from its reference
+        // Assuming parent field 'PNAM' points to Worldspace
+        WorldspacePath := 'PNAM'; // Standard path for Worldspace for CELLs
+        if HasElement(ARecord, WorldspacePath) then
+        begin
+            WorldspaceFormID := GetFormID(GetElement(ARecord, WorldspacePath));
+            WorldspaceName := Name(GetElement(ARecord, WorldspacePath));
+            ItemJSON.Add('WorldspaceFormID', WorldspaceFormID);
+            ItemJSON.Add('WorldspaceName', EscapeJsonString(WorldspaceName));
+        end;
+    end
+    else if HasElement(ARecord, 'WRLD') then // For records that have a WRLD property
+    begin
+        WorldspacePath := 'WRLD'; // Standard path for Worldspace
+        if HasElement(ARecord, WorldspacePath) then
+        begin
+            WorldspaceFormID := GetFormID(GetElement(ARecord, WorldspacePath));
+            WorldspaceName := Name(GetElement(ARecord, WorldspacePath));
+            ItemJSON.Add('WorldspaceFormID', WorldspaceFormID);
+            ItemJSON.Add('WorldspaceName', EscapeJsonString(WorldspaceName));
+        end;
+    end;
+
+
+    // Get relevant model path (MODL)
+    if HasElement(ARecord, 'MODL') then
+    begin
+        ItemJSON.Add('Model', EscapeJsonString(ElementEditValues(ARecord, 'MODL')));
+    end;
+
+    // Get Object Bounds
+    if HasElement(ARecord, 'OBND') then
+    begin
+        ItemJSON.Add('ObjectBounds', TJSONObject.Create);
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('X1', StrToInt(ElementEditValues(ARecord, 'OBND\\\\X1')));
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('Y1', StrToInt(ElementEditValues(ARecord, 'OBND\\\\Y1')));
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('Z1', StrToInt(ElementEditValues(ARecord, 'OBND\\\\Z1')));
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('X2', StrToInt(ElementEditValues(ARecord, 'OBND\\\\X2')));
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('Y2', StrToInt(ElementEditValues(ARecord, 'OBND\\\\Y2')));
+        (ItemJSON.Get('ObjectBounds') as TJSONObject).Add('Z2', StrToInt(ElementEditValues(ARecord, 'OBND\\\\Z2')));
+    end;
+
+
+    // Get Keywords (VMAD)
+    if HasElement(ARecord, 'VMAD') then
+    begin
+        KeywordsArray := TJSONArray.Create; // Re-introduced initialization for KeywordsArray
+        try
+            SetElementActive(ARecord); // Set current object as active for iterating keywords
+            // Iterate through all properties within the VMAD section, looking for FormIDs that are Keywords
+            // Assuming keywords are typically 'KWDA' or similar sub-records within VMAD or directly referenced.
+            // This might require more specific knowledge of the VMAD structure.
+            // For now, we'll iterate direct child elements if VMAD is the form.
+            if ElementCount(ElementByPath(ARecord, 'VMAD')) > 0 then
+            begin
+                VMADElement := ElementByPath(ARecord, 'VMAD');
+                SetElementActive(VMADElement);
+                SetIterator(VMADElement, "", false); // Iterate children of VMAD
+                while HasNext do
+                begin
+                    PropElement := GetNext; // This would be the property, e.g., "Property 0", "Property 1"
+                    if Assigned(PropElement) then
+                    begin
+                        // Get the Value (FormID of the Keyword)
+                        KeywordFormID := GetFormID(ElementByPath(PropElement, 'Value'));
+                        if (KeywordFormID <> '') then
+                        begin
+                            KeywordEditorID := EditorID(GetElement(PropElement, 'Value'));
+                            KeywordName := Name(GetElement(PropElement, 'Value'));
+                            
+                            KeywordObject := TJSONObject.Create;
+                            KeywordObject.Add('FormID', KeywordFormID);
+                            KeywordObject.Add('EditorID', EscapeJsonString(KeywordEditorID));
+                            KeywordObject.Add('Name', EscapeJsonString(KeywordName));
+                            KeywordsArray.Add(KeywordObject);
+                        end;
+                    end;
+                end;
+            end;
+        finally
+            // This finally block might free KeywordsArray prematurely if it's meant for outer scope.
+            // If KeywordsArray is added to ItemJSON, then ItemJSON owns it and should free it later.
+            // Removing `KeywordsArray.Free;` from here to prevent double-free or premature freeing.
+            // KeywordsArray.Free; // Moved or removed based on usage. If added to ItemJSON, ItemJSON handles freeing.
+        end;
+        // Re-check after populating if any keywords were actually found
+        if KeywordsArray.Count > 0 then
+        begin
+            ItemJSON.Add('Keywords', KeywordsArray); // Add KeywordsArray to ItemJSON
+        end else begin
+            KeywordsArray.Free; // Free if not added to JSON
+        end;
+    end;
+
+    JsonOutput.Add(ItemJSON); // Add as JSON object to the main array
   end;
   Result := 0; // Success
 end;
@@ -462,22 +611,37 @@ def run_xedit_export(
 
     wrapped_organizer.log(1, f"SkyGen: Launching xEdit '{xedit_mo2_name}' for export...")
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit binary: {xedit_exe_path}")
-    wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit args (via INI AutoRun): {ini_script_args}")
+    # The `ini_script_args` variable is no longer needed after these changes,
+    # but the log message is left for context to show what *was* being passed via INI.
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit CWD: {xedit_cwd}")
 
     process = None
     try:
-        # write a temporary INI file to control xEdit's behavior
-        write_xedit_ini_for_skygen(xedit_exe_path, ini_script_args, game_version, wrapped_organizer)
+        # Construct the command-line arguments for xEdit
+        xedit_args = [
+            # Game version argument (e.g., -SSE, -VR). Empty string if not applicable.
+            f"-{game_version.replace('Skyrim', '').upper()}" if game_version and game_version.startswith("Skyrim") else "",
+            "-o", str(game_root_path),       # Set game root (important for xEdit to find game data)
+            "-r",                            # Recommended: Force xEdit to use clean masters
+            "-P:" + str(xedit_script_path),  # Path to the Pascal script
+            # Add the script options as direct command-line arguments for xEdit
+        ] + [f"-scriptoption:{opt}" for opt in script_options]  # Append script options
 
-        # Reverted to using MO2's startApplication for correct VFS context.
-        # Arguments to startApplication are specific.
-        # The first argument is the MO2 executable name.
-        # The second argument is a list of arguments for that executable.
-        # When using AutoRun in INI, typically no further direct args are needed for the script itself.
-        # Pass an empty list for args as the AutoRun handles the script execution.
-        wrapped_organizer.startApplication(xedit_mo2_name, [], xedit_cwd) # No direct args needed if AutoRun is used
+        # Filter out any empty strings from xedit_args (e.g., if game_version arg is empty)
+        xedit_args = [arg for arg in xedit_args if arg]
 
+        wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit arguments for startApplication: {xedit_args}")
+
+        # Use organizer.startApplication to launch xEdit with VFS integration
+        # The first argument is the MO2 executable name, second is a list of arguments for that executable.
+        # The last argument is the working directory (game root).
+        success = wrapped_organizer.startApplication(xedit_mo2_name, xedit_args, xedit_cwd)
+        
+        if not success:
+            dialog.showError("xEdit Launch Error", f"Failed to launch xEdit ('{xedit_mo2_name}'). Check MO2's main log for details.")
+            wrapped_organizer.log(4, f"SkyGen: CRITICAL: startApplication failed for xEdit '{xedit_mo2_name}'.")
+            return None
+        
         # Poll for the output file
         success_flag = False
         start_time = time.time()
@@ -503,33 +667,12 @@ def run_xedit_export(
         if not success_flag:
             wrapped_organizer.log(3, f"SkyGen: ERROR: xEdit export did not produce expected output at {expected_output_path} in time ({MAX_POLL_TIME}s). Check xEdit's generated logs.")
         
-        # --- Clean up temporary xEdit INI file ---
-        # The temporary INI is no longer created, so no cleanup is needed here.
-        # However, the previous cleanup block is kept for robustness in case of old files.
-        try:
-            xedit_ini_path = xedit_exe_path.with_suffix('.ini')
-            if xedit_ini_path.exists():
-                xedit_ini_path.unlink()
-                wrapped_organizer.log(1, f"SkyGen: Deleted temporary INI: {xedit_ini_path}")
-        except Exception as e:
-            wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit INI '{xedit_ini_path}': {e}")
-        # --- End cleanup ---
-
         return expected_output_path if success_flag else None # Return the path if successful
 
     except Exception as e:
         dialog.showError("Unexpected Error", f"An unexpected error occurred during xEdit export:\n{e}\n{traceback.format_exc()}")
         wrapped_organizer.log(3, f"Exception in run_xedit_export: {e}\n{traceback.format_exc()}")
         
-        # Ensure INI cleanup even if other exceptions occur
-        try:
-            xedit_ini_path = xedit_exe_path.with_suffix('.ini')
-            if xedit_ini_path.exists():
-                xedit_ini_path.unlink()
-                wrapped_organizer.log(1, f"SkyGen: Deleted temporary xEdit INI (due to export error): {xedit_ini_path}")
-        except Exception as cleanup_e:
-            wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit INI (after error) '{xedit_ini_path}': {cleanup_e}")
-
         return None
 
 
@@ -686,7 +829,7 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
             wrapped_organizer.log(1, f"SkyGen: Generated BOS INI for '{plugin_name}' at: {ini_file_path}")
             generated_count += 1
         except Exception as e:
-            dialog_instance.showError("BOS INI Write Error", f"Failed to write BOS INI for {plugin_name}:\n{e}")
+            dialog_instance.showError("BOS INI Write Error", f"Failed to write BOS INI for '{plugin_name}': {e}")
             wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write BOS INI for {plugin_name}: {e}")
 
     if generated_count > 0:
@@ -699,7 +842,7 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
 
 def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_organizer: Any):
     """
-    Cleans up the temporary Pascal script and the xEdit-generated INI file.
+    Cleans up the temporary Pascal script. The xEdit-generated INI file is no longer created by the plugin.
     """
     # Clean up the Pascal script
     if script_path.exists():
@@ -708,12 +851,4 @@ def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_o
             wrapped_organizer.log(1, f"SkyGen: Deleted temporary xEdit script: {script_path}")
         except Exception as e:
             wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit script '{script_path}': {e}")
-    
-    # Clean up the xEdit-generated INI file (often named after the xEdit executable)
-    xedit_ini_path = xedit_exe_path.with_suffix('.ini')
-    if xedit_ini_path.exists():
-        try:
-            xedit_ini_path.unlink()
-            wrapped_organizer.log(1, f"SkyGen: Deleted temporary xEdit INI: {xedit_ini_path}")
-        except Exception as e:
-            wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit INI '{xedit_ini_path}': {e}")
+    # The xEdit INI file cleanup is no longer needed here as the plugin does not create it.

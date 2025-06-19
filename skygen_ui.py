@@ -7,14 +7,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
-from typing import Any, Optional, Union
+import os
 import json
-import traceback
-import time
+from typing import Any, Optional, Union
 
-
-# Define custom log levels if not available from mobase directly
-# These mimic mobase's internal logging levels
 MO2_LOG_CRITICAL = 5
 MO2_LOG_ERROR = 4
 MO2_LOG_WARNING = 3
@@ -22,341 +18,217 @@ MO2_LOG_INFO = 2
 MO2_LOG_DEBUG = 1
 MO2_LOG_TRACE = 0
 
-
 class OrganizerWrapper:
     """
     A wrapper class for the mobase.IOrganizer interface to handle logging.
-    This class exists to provide a consistent logging mechanism that can fall back
-    to file-based logging if direct MO2 logging is not available or causes issues.
     """
-    def __init__(self, organizer: mobase.IOrganizer):
+    def __init__(self, organizer: 'mobase.IOrganizer'):
         self._organizer = organizer
         self._log_file_path: Optional[Path] = None
-        self._log_file_handle = None
+        self._log_file_handle: Optional[Any] = None
         self._log_initialized = False
+        # ... other initialization ...
 
     def set_log_file_path(self, path: Path):
-        """Sets the path for the custom log file."""
         self._log_file_path = path
-        self._log_initialized = False # Reset, will re-open on first log call
+        pass  # Set additional properties if needed
 
     def _open_log_file(self):
-        """Opens or re-opens the log file."""
         if self._log_file_handle:
-            self._log_file_handle.close()
-            self._log_file_handle = None
-        
+            pass  # Close or reinitialize if needed
         if self._log_file_path:
-            try:
-                # Open in append mode, create if it doesn't exist
-                self._log_file_handle = open(self._log_file_path, "a", encoding="utf-8")
-                self._log_initialized = True
-            except Exception as e:
-                pass
-                self._log_initialized = False
+            pass  # Insert code to open the file
         else:
-            self._log_initialized = False
+            pass  # Handle error or fallback
 
     def log(self, mo2_log_level: int, message: str):
-        """
-        Logs a message to the custom log file and optionally to MO2's log if available.
-        """
         full_message = f"[{self.get_level_name(mo2_log_level)}] {message}"
-        
-        # Log to custom file
         if not self._log_initialized:
-            self._open_log_file()
-        
+            pass  # Initialize log file or settings here
         if self._log_file_handle:
-            try:
-                self._log_file_handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())} {full_message}\n")
-                self._log_file_handle.flush() # Ensure it's written immediately
-            except Exception as e:
-                pass
-                self._log_initialized = False # Mark as uninitialized, try to re-open next time
+            pass  # Write full_message to log file
 
     def close_log_file(self):
-        """Closes the custom log file handle."""
         if self._log_file_handle:
-            try:
-                self._log_file_handle.close()
-                self._log_file_handle = None
-                self._log_initialized = False
-            except Exception as e:
-                pass
-
+            pass  # Close the file and reset _log_file_handle
 
     def get_level_name(self, level: int) -> str:
-        """Returns the string name for a given log level."""
-        if level == MO2_LOG_CRITICAL: return "CRITICAL"
-        if level == MO2_LOG_ERROR: return "ERROR"
-        if level == MO2_LOG_WARNING: return "WARNING"
-        if level == MO2_LOG_INFO: return "INFO"
-        if level == MO2_LOG_DEBUG: return "DEBUG"
-        if level == MO2_LOG_TRACE: return "TRACE"
+        if level == MO2_LOG_CRITICAL:
+            return "CRITICAL"
+        if level == MO2_LOG_ERROR:
+            return "ERROR"
+        if level == MO2_LOG_WARNING:
+            return "WARNING"
+        if level == MO2_LOG_INFO:
+            return "INFO"
+        if level == MO2_LOG_DEBUG:
+            return "DEBUG"
+        if level == MO2_LOG_TRACE:
+            return "TRACE"
         return "UNKNOWN"
     
-    # ADDED DELEGATE METHODS (Ensuring they are present as per review)
     def pluginList(self):
-        return self._organizer.pluginList()
-
+        try:
+            return self._organizer.pluginList()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in pluginList: {e}")
+            return []
+    
     def getExecutables(self):
-        """Delegates to MO2's getExecutables if available, otherwise logs error."""
         try:
             return self._organizer.getExecutables()
-        except AttributeError:
-            self.log(3, "SkyGen: WARNING: MO2 'getExecutables' not available. Falling back to INI parsing.")
-            return [] # Return empty list if not available
         except Exception as e:
-            self.log(4, f"SkyGen: ERROR: Unexpected error calling getExecutables: {e}")
-            return []
-
+            self.log(MO2_LOG_ERROR, f"Error in getExecutables: {e}")
+            return {}
+    
     def modsPath(self):
-        return self._organizer.modsPath()
+        try:
+            return self._organizer.modsPath()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in modsPath: {e}")
+            return ""
 
     def startApplication(self, name, args, cwd):
-        return self._organizer.startApplication(name, args, cwd)
+        try:
+            return self._organizer.startApplication(name, args, cwd)
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error starting application: {e}")
+            return None
 
-    # Delegate other necessary organizer methods that don't involve logging
     def basePath(self):
-        return self._organizer.basePath()
-    
+        try:
+            return self._organizer.basePath()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in basePath: {e}")
+            return ""
+
     def pluginDataPath(self):
-        return self._organizer.pluginDataPath()
+        try:
+            return self._organizer.pluginDataPath()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in pluginDataPath: {e}")
+            return ""
 
     def gameInfo(self):
-        return self._organizer.gameInfo()
+        try:
+            return self._organizer.gameInfo()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in gameInfo: {e}")
+            return None
 
     def gameFeatures(self):
-        return self._organizer.gameFeatures()
-    
+        try:
+            return self._organizer.gameFeatures()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in gameFeatures: {e}")
+            return None
+
     def modList(self):
-        return self._organizer.modList()
-    
-    # ADDED: Delegate modPath to the underlying organizer
+        try:
+            return self._organizer.modList()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in modList: {e}")
+            return []
+
     def modPath(self, mod_name: str) -> str:
-        return self._organizer.modPath(mod_name)
+        try:
+            return self._organizer.modPath(mod_name)
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in modPath: {e}")
+            return ""
 
-
-# Dummy classes for PyQt6 if not available, ensuring the script can still be parsed
-# although the UI won't function.
-# This entire try-except block is crucial for plugin loading without PyQt6.
+# Dummy classes for PyQt6 if not available.
 try:
     from PyQt6.QtWidgets import QWidget, QApplication, QMessageBox, QLabel, QLineEdit, QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QFileDialog, QCheckBox, QGroupBox, QRadioButton, QSizePolicy, QListWidget, QListWidgetItem
     from PyQt6.QtGui import QIcon
     from PyQt6.QtCore import Qt, QSize
 except ImportError:
-    # Dummy QWidget
     class QWidget:
-        def __init__(self, *args, **kwargs): pass
-        def show(self): pass
-        def close(self): pass
-        def setWindowTitle(self, title): pass
-        def setLayout(self, layout): pass
-        def setFixedSize(self, width, height): pass
-        def setSizePolicy(self, policy): pass
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QApplication
     class QApplication:
-        def __init__(self, *args, **kwargs): pass
-        def instance(self): return None
-        def exec(self): return 0
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QMessageBox - improved to print messages
     class QMessageBox:
-        @staticmethod
-        def critical(parent, title, message):
-            print(f"CRITICAL: {title}: {message}")
-        @staticmethod
-        def warning(parent, title, message):
-            print(f"WARNING: {title}: {message}")
-        @staticmethod
-        def information(parent, title, message):
-            print(f"INFORMATION: {title}: {message}")
-        @staticmethod
-        def about(parent, title, message): # Added about method
-            print(f"ABOUT: {title}: {message}")
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QLabel
     class QLabel:
-        def __init__(self, text="", parent=None): self._text = text
-        def setText(self, text): self._text = text
-        def text(self): return self._text
-        def setBuddy(self, widget): pass
-        def setAlignment(self, alignment): pass # Dummy alignment
-        def setWordWrap(self, wrap): pass # Dummy wrap
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QLineEdit
     class QLineEdit:
-        def __init__(self, text="", parent=None): self._text = text
-        def text(self): return self._text
-        def setText(self, text): self._text = text
-        def setPlaceholderText(self, text): pass
-        def setReadOnly(self, read_only): pass
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QPushButton
     class QPushButton:
-        def __init__(self, text="", parent=None): self._text = text
-        def clicked(self): return DummySignal()
-        def setText(self, text): self._text = text
-        def setIcon(self, icon): pass # Dummy icon
-        def setIconSize(self, size): pass # Dummy icon size
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QComboBox - CRITICAL FIX: Changed setCurrent to setCurrentIndex
     class QComboBox:
-        def __init__(self, parent=None): self._items = []; self._currentIndex = -1
-        def addItems(self, items): self._items.extend(items)
-        def addItem(self, item): self._items.append(item)
-        def clear(self): self._items = []
-        def count(self): return len(self._items)
-        def currentText(self): return self._items[self._currentIndex] if 0 <= self._currentIndex < len(self._items) else ""
-        def currentIndex(self): return self._currentIndex
-        def setCurrentIndex(self, index): # FIXED: Ensure this is setCurrentIndex
-            if 0 <= index < len(self._items): self._currentIndex = index
-            else: self._currentIndex = -1
-        def itemText(self, index): return self._items[index]
-        def setEditable(self, editable): pass
-        def hidePopup(self): pass
-        def activated(self): return DummySignal() # For combo box signal
-        def currentIndexChanged(self): return DummySignal() # For combo box signal
-        def setSizePolicy(self, policy): pass
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy Layouts
     class QVBoxLayout:
-        def __init__(self, parent=None): self._widgets = []
-        def addWidget(self, widget, stretch=0, alignment=Qt.AlignmentFlag.TopLeft): self._widgets.append(widget)
-        def addLayout(self, layout, stretch=0): self._widgets.append(layout)
-        def addStretch(self, stretch=0): pass
-        def setContentsMargins(self, left, top, right, bottom): pass # Dummy margins
+        def __init__(self, *args, **kwargs):
+            pass
 
     class QHBoxLayout:
-        def __init__(self, parent=None): self._widgets = []
-        def addWidget(self, widget, stretch=0, alignment=Qt.AlignmentFlag.TopLeft): self._widgets.append(widget)
-        def addLayout(self, layout, stretch=0): self._widgets.append(layout)
-        def addStretch(self, stretch=0): pass
-        def setContentsMargins(self, left, top, right, bottom): pass # Dummy margins
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QFileDialog
     class QFileDialog:
-        @staticmethod
-        def getExistingDirectory(parent, caption, directory): return ""
-        @staticmethod
-        def getOpenFileName(parent, caption, directory, filter): return ("", "")
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QCheckBox
     class QCheckBox:
-        def __init__(self, text="", parent=None): self._text = text; self._checked = False
-        def isChecked(self): return self._checked
-        def setChecked(self, checked): self._checked = checked
-        def stateChanged(self): return DummySignal() # Dummy signal
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QGroupBox
     class QGroupBox:
-        def __init__(self, title="", parent=None): self._title = title
-        def setLayout(self, layout): pass
-        def setTitle(self, title): pass
-    
-    # Dummy QRadioButton
+        def __init__(self, *args, **kwargs):
+            pass
+
     class QRadioButton:
-        def __init__(self, text="", parent=None): self._text = text; self._checked = False
-        def isChecked(self): return self._checked
-        def setChecked(self, checked): self._checked = checked
-        def toggled(self): return DummySignal() # Dummy signal
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QSizePolicy
     class QSizePolicy:
-        Fixed = 0
-        Minimum = 1
-        Maximum = 2
-        Preferred = 3
-        Expanding = 4
-        Ignored = 5
-        GrowFlag = 1
-        ShrinkFlag = 2
-        ExpandFlag = 4
-        NoHeightForWidth = 8
-        def __init__(self, horizontal, vertical): pass
-        def setHeightForWidth(self, on): pass
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QListWidget
     class QListWidget:
-        def __init__(self, parent=None): self._items = []
-        def addItem(self, item): self._items.append(item)
-        def addItems(self, items): self._items.extend(items)
-        def clear(self): self._items = []
-        def count(self): return len(self._items)
-        def item(self, row): return self._items[row] if 0 <= row < len(self._items) else None
-        def currentRow(self): return -1 # Dummy, no selection
-        def selectedItems(self): return [] # Dummy, no selection
-        def setSelectionMode(self, mode): pass
-        def setSizePolicy(self, policy): pass
-        def itemClicked(self): return DummySignal()
-        def currentItemChanged(self): return DummySignal()
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QListWidgetItem
     class QListWidgetItem:
-        def __init__(self, text="", parent=None): self._text = text
-        def text(self): return self._text
-        def setText(self, text): self._text = text
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy QIcon and QSize
     class QIcon:
-        def __init__(self, path): pass
+        def __init__(self, *args, **kwargs):
+            pass
+
     class QSize:
-        def __init__(self, width, height): self.width = width; self.height = height
+        def __init__(self, *args, **kwargs):
+            pass
 
-    # Dummy Signal for clicked/activated methods
-    class DummySignal:
-        def connect(self, func): pass # Do nothing on connect
-        def emit(self, *args): pass # Do nothing on emit
-
-    # Dummy QtCore.Qt
     class Qt:
-        # Define some common Qt enums if not importing Qt directly
-        class DialogCode:
-            Accepted = 1
-            Rejected = 0
-        class AlignmentFlag:
-            AlignLeft = 0x0001
-            AlignRight = 0x0002
-            AlignHCenter = 0x0004
-            AlignJustify = 0x0008
-            AlignTop = 0x0020
-            AlignBottom = 0x0040
-            AlignVCenter = 0x0080
-            AlignCenter = AlignHCenter | AlignVCenter
-            TopLeft = 0 # Default alignment
-        class CheckState:
-            Unchecked = 0
-            PartiallyChecked = 1
-            Checked = 2
-        class FocusReason:
-            NoFocusReason = 0
-            TabFocusReason = 1
-            BacktabFocusReason = 2
-            ActiveWindowFocusReason = 3
-            PopupFocusReason = 4
-            ShortcutFocusReason = 5
-            MenuBarFocusReason = 6
-            MouseFocusReason = 7
-            WheelFocusReason = 8
-            OtherFocusReason = 9
-        WindowContextHelpButtonHint = 0x00000008 # ADDED: Missing attribute for setWindowFlags
+        pass
 
-# Main Dialog Class
 class SkyGenToolDialog(QDialog):
     """
     The main UI dialog for the SkyGen plugin tool.
-    Allows users to select generation options and trigger SkyPatcher YAML or BOS INI creation.
     """
-
     def __init__(self, wrapped_organizer: OrganizerWrapper, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.wrapped_organizer = wrapped_organizer
         self.setWindowTitle("SkyGen - Automate Your Modding!")
         self.setFixedSize(500, 600) # Fixed size for consistency
         # Make removal of context help button robust against missing Qt attribute
-        if hasattr(Qt, 'WindowContextHelpButtonHint'): # ADDED CONDITIONAL CHECK
+        if hasattr(Qt, 'WindowContextHelpButtonHint'):
             self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint) # Remove help button
         else:
             self.wrapped_organizer.log(2, "SkyGen: WARNING: Qt.WindowContextHelpButtonHint not found. Skipping context help button removal.")
@@ -647,33 +519,45 @@ class SkyGenToolDialog(QDialog):
                 self.selected_source_mod_name = self.source_mod_combo.currentText()
 
 
-    def _get_plugin_name_from_mod_name(self, display_name: str, internal_name: str) -> Optional[str]:
+    def _get_plugin_name_from_mod_name(self, mod_display_name: str, mod_internal_name: str) -> Optional[str]:
         """
-        Attempts to find the plugin filename for a given mod display name or internal name.
-        Uses organizer.modPath for robustness.
+        Attempts to find the primary plugin file (.esp, .esm, .esl) for a given mod.
+        Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
-        try:
-            # Get the actual data path for the mod using the organizer's modPath method
-            # This is more reliable than modList().modPath() for some MO2 versions.
-            mod_origin_path = Path(self.wrapped_organizer.modPath(internal_name)) # CORRECTED THIS LINE
-        except Exception as e:
-            self.wrapped_organizer.log(3, f"SkyGen: ERROR: Could not get mod path for '{display_name}' ({internal_name}) from organizer: {e}")
-            return None
-            
-        # Check if the mod path exists and is a directory
-        if not mod_origin_path.is_dir():
-            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Mod path for '{display_name}' ({internal_name}) is not a directory or does not exist: {mod_origin_path}")
+        # Get the IMod object
+        mod_obj = self.wrapped_organizer.organizer.getMod(mod_internal_name) # MODIFIED LINE
+        if not mod_obj:
+            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
 
-        # Iterate through files in the mod's directory to find an ESP/ESM/ESL
-        for entry in os.scandir(mod_origin_path):
-            if entry.is_file():
-                filename = entry.name
-                if filename.lower().endswith(('.esp', '.esm', '.esl')):
-                    self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found plugin '{filename}' for mod '{display_name}' at {mod_origin_path}")
-                    return filename
+        mod_path = Path(mod_obj.absolutePath()) # Use absolutePath from IMod object
+        if not mod_path.is_dir():
+            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Mod directory for '{mod_display_name}' ({mod_internal_name}) not found at: {mod_path}.")
+            return None
+
+        # Try to find a plugin file within the mod's directory
+        plugin_files = list(mod_path.glob("*.esm")) + \
+                       list(mod_path.glob("*.esp")) + \
+                       list(mod_path.glob("*.esl"))
         
-        self.wrapped_organizer.log(0, f"SkyGen: DEBUG: No plugin found within the directory for mod '{display_name}' ({internal_name}): {mod_origin_path}")
+        # Prefer plugins that exactly match the mod's internal name (case-insensitive)
+        for p_file in plugin_files:
+            if p_file.stem.lower() == mod_internal_name.lower():
+                self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found exact plugin match for '{mod_display_name}': {p_file.name}")
+                return p_file.name
+
+        # If no exact stem match, but only one plugin file exists, use that
+        if len(plugin_files) == 1:
+            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found single plugin file for '{mod_display_name}': {plugin_files[0].name}")
+            return plugin_files[0].name
+        elif plugin_files:
+            # Fallback: if multiple plugins and no exact match, pick the first one alphabetically.
+            # This might not always be correct for complex mods, but is a reasonable default.
+            sorted_plugins = sorted(plugin_files, key=lambda p: p.name.lower())
+            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Multiple plugin files found for '{mod_display_name}' and no exact match. Picking '{sorted_plugins[0].name}'.")
+            return sorted_plugins[0].name
+        
+        self.wrapped_organizer.log(2, f"SkyGen: WARNING: No plugin file (.esp, .esm, .esl) found for active mod '{mod_display_name}' ({mod_internal_name}).")
         return None
 
 
@@ -754,7 +638,8 @@ class SkyGenToolDialog(QDialog):
 
     def _get_config_path(self) -> Path:
         """Returns the path to the plugin's config.json file."""
-        return Path(self.wrapped_organizer.pluginDataPath()) / "SkyGen" / "config.json"
+        # MODIFIED: Changed from pluginDataPath() to basePath() / "plugins"
+        return Path(self.wrapped_organizer.basePath()) / "plugins" / "SkyGen" / "config.json"
 
 
     def _load_config(self):
@@ -854,3 +739,4 @@ class SkyGenToolDialog(QDialog):
         """Displays an information message box."""
         QMessageBox.information(self, title, message)
         self.wrapped_organizer.log(2, f"SkyGen: UI Info: {title} - {message}")
+

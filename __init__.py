@@ -18,7 +18,7 @@ from .skygen_file_utilities import (
     generate_bos_ini_files,
     clean_temp_script_and_ini,
     get_game_root_from_general_ini,
-    detect_root_mode # This line is now correctly imported
+    detect_root_mode,
 )
 
 # Ensure necessary PyQt6 modules are imported for the main plugin if still used here,
@@ -43,6 +43,21 @@ except ImportError:
         def information(parent, title, message): print(f"INFORMATION: {title}: {message}")
     class QIcon:
         def __init__(self, *args, **kwargs): pass
+    class QWidget:
+        def __init__(self, *args, **kwargs):
+            pass
+        def show(self):
+            pass
+        def close(self):
+            pass
+        def setWindowTitle(self, title):
+            pass
+        def setLayout(self, layout):
+            pass
+        def setFixedSize(self, width, height):
+            pass
+        def setSizePolicy(self, policy):
+            pass
 
 
 def createPlugin() -> mobase.IPluginTool:
@@ -70,7 +85,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         self.wrapped_organizer = OrganizerWrapper(organizer) # Initialize the wrapper
         
         # Ensure the plugin's data directory exists
-        plugin_data_dir = Path(self.organizer.pluginDataPath()) / "SkyGen"
+        # MODIFIED: Changed from pluginDataPath() to basePath() / "plugins"
+        plugin_data_dir = Path(self.organizer.basePath()) / "plugins" / "SkyGen" 
         plugin_data_dir.mkdir(parents=True, exist_ok=True)
         
         self.wrapped_organizer.set_log_file_path(plugin_data_dir / "SkyGen_Debug.log")
@@ -79,6 +95,10 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
     def name(self):
         return "SkyGen"
+
+    def displayName(self):
+        """Returns the display name for the plugin in MO2."""
+        return self.name() # Returns the same name as the 'name' method
 
     def author(self):
         return "Your Name" # Replace with your name
@@ -96,6 +116,20 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         # No specific settings for MO2's plugin list itself, managed via config.json
         return []
 
+    def icon(self):
+        """
+        Returns the icon for the plugin in MO2.
+        Required by mobase.IPluginTool.
+        """
+        return QIcon() # Return an empty QIcon if no specific icon is provided
+
+    def tooltip(self):
+        """
+        Returns the tooltip text for the plugin in MO2.
+        Required by mobase.IPluginTool.
+        """
+        return "Generate SkyPatcher YAMLs or BOS INIs"
+
     def display(self):
         """
         Displays the main UI dialog and handles the generation process based on user input.
@@ -110,8 +144,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         
         temp_msg_box = DummyMessageBox()
 
-        # CORRECTED: Use self.organizer.pluginDataPath() for config.json
-        config_file_path = Path(self.organizer.pluginDataPath()) / "SkyGen" / "config.json" # <--- FIXED PATH
+        # CORRECTED: Use self.organizer.basePath() / "plugins" / "SkyGen" for config.json
+        config_file_path = Path(self.organizer.basePath()) / "plugins" / "SkyGen" / "config.json"
         
         config_data_for_path_lookup = {}
         if config_file_path.is_file():
@@ -123,10 +157,12 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 # Don't show dialog error here, as dialog might not be fully initialized yet
         
         # Determine xEdit path and game root path
+        # MODIFIED: Added self.dialog.selected_game_version to the call
         self.xedit_exe_path, self.xedit_mo2_name = get_xedit_exe_path(
             config_data_for_path_lookup, 
             self.wrapped_organizer,
-            self.dialog
+            self.dialog,
+            self.dialog.selected_game_version # Pass the selected game version
         )
         if not self.xedit_exe_path or not self.xedit_mo2_name:
             self.wrapped_organizer.log(3, "SkyGen: xEdit executable not found. Aborting display.")
@@ -192,14 +228,15 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     if not target_plugin_filename:
                         self.wrapped_organizer.log(3, f"SkyGen: ERROR: Could not determine plugin filename for target mod: {target_mod_display_name}. Aborting 'Generate All'.")
                         self.dialog.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_display_name}'. Please ensure it's active and contains a plugin.")
-                        clean_temp_script_and_ini(self.xedit_exe_path, Path(self.organizer.pluginDataPath()) / "SkyGen" / "ExportPluginData.pas", wrapped_organizer=self.wrapped_organizer)
+                        clean_temp_script_and_ini(self.xedit_exe_path, Path(self.organizer.basePath()) / "plugins" / "SkyGen" / "ExportPluginData.pas", wrapped_organizer=self.wrapped_organizer)
                         return
 
-                    xedit_script_path = Path(self.organizer.pluginDataPath()) / "SkyGen" / "ExportPluginData.pas"
+                    # MODIFIED: Use basePath() / "plugins" / "SkyGen" for xedit_script_path
+                    xedit_script_path = Path(self.organizer.basePath()) / "plugins" / "SkyGen" / "ExportPluginData.pas"
 
                     # For "Generate All", the target mod export should capture ALL categories, not a specific one
                     xedit_output_path_target_all = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                        wrapped_organizer=self.wrapped_organizer,
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -247,14 +284,14 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         
                         # Run xEdit export for the current source mod and specific category
                         xedit_output_path_source = run_xedit_export(
-                            wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                            wrapped_organizer=self.wrapped_organizer,
                             dialog=self.dialog,
                             xedit_exe_path=self.xedit_exe_path,
                             xedit_mo2_name=self.xedit_mo2_name,
                             game_root_path=self.game_root_path,
                             xedit_script_path=xedit_script_path,
                             output_base_dir=output_folder_path,
-                            target_plugin_filename=source_mod_plugin_filename, # This is the plugin we're extracting data FROM
+                            target_plugin_filename=source_plugin_filename, # This is the plugin we're extracting data FROM
                             game_version=self.dialog.selected_game_version,
                             target_mod_display_name=current_source_mod_display_name, # For logging context
                             target_category=category, # Pass the specific category for source export
@@ -268,7 +305,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             
                             if source_exported_json and "baseObjects" in source_exported_json:
                                 generated = generate_and_write_skypatcher_yaml(
-                                    wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                                    wrapped_organizer=self.wrapped_organizer,
                                     category=category,
                                     target_mod_plugin_name=target_plugin_filename, # Target is the single target mod
                                     source_mod_plugin_name=source_mod_plugin_filename,
@@ -307,13 +344,13 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         self.wrapped_organizer.log(3, "SkyGen: Could not determine plugin filenames for selected mods.")
                         return
 
-                    # Construct path to the Pascal script
-                    xedit_script_path = Path(self.organizer.pluginDataPath()) / "SkyGen" / "ExportPluginData.pas"
+                    # MODIFIED: Use basePath() / "plugins" / "SkyGen" for xedit_script_path
+                    xedit_script_path = Path(self.organizer.basePath()) / "plugins" / "SkyGen" / "ExportPluginData.pas"
 
                     # 1. Export data from the Target Mod
                     self.wrapped_organizer.log(1, f"SkyGen: Exporting data from Target Mod: {target_mod_display_name}...")
                     xedit_output_path_target = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                        wrapped_organizer=self.wrapped_organizer,
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -336,10 +373,10 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
                     target_exported_json = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=xedit_output_path_target, description="Target Mod xEdit Export", dialog_instance=self.dialog)
                     clean_temp_script_and_ini(self.xedit_exe_path, xedit_script_path, wrapped_organizer=self.wrapped_organizer)
-
+ 
                     if not target_exported_json or "baseObjects" not in target_exported_json:
                         self.wrapped_organizer.log(3, "SkyGen: ERROR: Target mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
-                        self.dialog.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot generate YAML.")
+                        self.dialog.showError("JSON Parse Error", "Target mod xedit export JSON is empty or malformed. Cannot generate YAML.")
                         return
                     
                     all_exported_target_bases = target_exported_json.get("baseObjects", [])
@@ -349,7 +386,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     # 2. Export data from the Source Mod for the specific category
                     self.wrapped_organizer.log(1, f"SkyGen: Exporting data from Source Mod: {source_mod_display_name} for category {category}...")
                     xedit_output_path_source = run_xedit_export(
-                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                        wrapped_organizer=self.wrapped_organizer,
                         dialog=self.dialog,
                         xedit_exe_path=self.xedit_exe_path,
                         xedit_mo2_name=self.xedit_mo2_name,
@@ -370,17 +407,17 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         clean_temp_script_and_ini(self.xedit_exe_path, xedit_script_path, wrapped_organizer=self.wrapped_organizer)
                         return
 
-                    source_exported_json = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=xedit_output_path_source, description="Source Mod xEdit Export", dialog_instance=self.dialog)
+                    source_exported_json = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self.dialog)
                     clean_temp_script_and_ini(self.xedit_exe_path, xedit_script_path, wrapped_organizer=self.wrapped_organizer)
                     
                     if not source_exported_json or "baseObjects" not in source_exported_json:
                         self.wrapped_organizer.log(3, "SkyGen: ERROR: Source mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
-                        self.dialog.showError("JSON Parse Error", "Source mod xEdit export JSON is empty or malformed. Cannot generate YAML.")
+                        self.dialog.showError("JSON Parse Error", "Source mod xedit export JSON is empty or malformed. Cannot generate YAML.")
                         return
 
                     # 3. Generate and write the YAML
                     generate_and_write_skypatcher_yaml(
-                        wrapped_organizer=self.wrapped_organizer, # <--- ENSURED KEYWORD ARG
+                        wrapped_organizer=self.wrapped_organizer,
                         category=category,
                         target_mod_plugin_name=target_plugin_filename,
                         source_mod_plugin_name=source_plugin_filename,
@@ -412,3 +449,11 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
 
     def __tr(self, str_):
         return self.mobase.qtTr(str_, self.name())
+
+    def _open_log_file(self):
+        if self._log_file_handle:
+            pass  # Empty block fixed with pass
+        if self._log_file_path:
+            pass
+        else:
+            pass
