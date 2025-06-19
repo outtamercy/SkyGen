@@ -614,6 +614,18 @@ class SkyGenToolDialog(QDialog):
         self.wrapped_organizer.log(2, f"SkyGen: WARNING: No plugin file (.esp, .esm, .esl) found for active mod '{mod_display_name}' ({mod_internal_name}).")
         return None
 
+    def _get_internal_mod_name_from_display_name(self, display_name: str) -> Optional[str]:
+        """
+        Retrieves the internal (folder) name of a mod from its display name.
+        """
+        mod_list = self.wrapped_organizer.modList()
+        for mod_internal_name in mod_list.allMods():
+            if mod_list.displayName(mod_internal_name) == display_name:
+                self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found internal name '{mod_internal_name}' for display name '{display_name}'.")
+                return mod_internal_name
+        self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find internal name for display name: '{display_name}'.")
+        return None
+
 
     def _browse_output_folder(self):
         """Opens a dialog to select the output folder."""
