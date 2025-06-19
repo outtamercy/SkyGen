@@ -273,15 +273,13 @@ def detect_root_mode(wrapped_organizer: Any) -> bool:
 def write_pas_script_to_xedit(script_full_path: Path, wrapped_organizer: Any):
     """
     Writes the fixed Pascal script content to the specified full path (xEdit's script directory).
-    The content is now hardcoded in this function.
+    The content is now hardcoded in this function, with m_Common dependency removed.
     """
-    # Define the Pascal script content as a multi-line Python f-string
-    # Removed incorrect escaping of curly braces.
     script_content = """
 unit ExportPluginData;
 
 uses
-  SysUtils, Classes, Dialogs, m_Common, m_Process, m_JSON;
+  SysUtils, Classes, Dialogs, m_Process, m_JSON; // m_Common removed
 
 var
   JsonOutput: TJSONArray; // Changed to TJSONArray to hold a list of objects
@@ -295,6 +293,7 @@ function Finalize: Integer;
 begin
   Result := 0;
 end;
+
 function Process(ARecord: IInterface): Integer;
 var
   Element: IInterface;
@@ -335,7 +334,7 @@ begin
     Signature := SignatureToString(ARecord.GetSignature);
 
     // Debugging logs - only enable if absolutely necessary, they spam the xEdit log
-    // AddMessage(Format('Processing record: %s, Origin: %s', [LongName(ARecord), GetElementFile(ARecord).FileName]));
+    // AddMessage(Format('Processing record: %s, Origin: %s', [LongName(ARecord), GetElementFile(ARecord).FileName])); // REMOVED AddMessage
 
     // Filter by TargetPlugin if specified
     if (TargetPlugin <> '') and (GetElementFile(ARecord).FileName <> TargetPlugin) then
@@ -521,7 +520,7 @@ begin
   OutputFilePath := GetScriptOption('OutputFilePath');
   if OutputFilePath = '' then
   begin
-    AddMessage('ERROR: OutputFilePath not provided as script option.'); // Added log message
+    // AddMessage('ERROR: OutputFilePath not provided as script option.'); // REMOVED AddMessage
     Result := 1; // Indicate error
     Exit;
   end;
@@ -538,11 +537,11 @@ begin
   // Save JSON to file
   try
     MainOutputObject.SaveToFile(OutputFilePath); // Save the main object
-    AddMessage(Format('Successfully exported data to: %s', [OutputFilePath]));
+    // AddMessage(Format('Successfully exported data to: %s', [OutputFilePath])); // REMOVED AddMessage
   except
     on E: Exception do
     begin
-      AddMessage(Format('ERROR: Failed to save JSON to file %s: %s', [OutputFilePath, E.Message]));
+      // AddMessage(Format('ERROR: Failed to save JSON to file %s: %s', [OutputFilePath, E.Message])); // REMOVED AddMessage
       Result := 1; // Indicate error
     end;
   end;
@@ -555,7 +554,6 @@ end;
 end.
     """
     try:
-        # Ensure the parent directory exists
         script_full_path.parent.mkdir(parents=True, exist_ok=True)
         with open(script_full_path, 'w', encoding='utf-8') as f:
             f.write(script_content)
@@ -571,7 +569,7 @@ def run_xedit_export(
     xedit_exe_path: Path,
     xedit_mo2_name: str,
     game_root_path: Path,
-    xedit_script_filename: str, # TO THIS
+    xedit_script_filename: str,
     output_base_dir: Path,
     target_plugin_filename: str,
     game_version: str,
