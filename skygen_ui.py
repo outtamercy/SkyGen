@@ -53,10 +53,13 @@ class OrganizerWrapper:
 
     def log(self, level: int, message: str):
         """
-        Logs a message to MO2's main log pane and to the custom debug log file.
+        Logs a message to MO2's main log pane (via print as fallback) and to the custom debug log file.
         """
-        self._organizer.log(level, message) # Log to MO2's main log pane
+        # Always print to console as a robust fallback for MO2's main log.
+        # This bypasses the problematic self._organizer.log entirely.
+        print(f"MO2_LOG_FALLBACK [{self.get_level_name(level)}]: {message}")
 
+        # Then attempt to log to our custom file
         if self._log_file_handle:
             try:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -69,9 +72,11 @@ class OrganizerWrapper:
                     MO2_LOG_CRITICAL: "CRITICAL"
                 }.get(level, "UNKNOWN")
                 self._log_file_handle.write(f"[{timestamp} {level_name}] {message}\n")
-                self._log_file_handle.flush() # NEW: Force write to disk immediately
+                self._log_file_handle.flush() # Force write to disk immediately
             except Exception as e:
-                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write to SkyGen_Debug.log: {e}")
+                # If writing to our file fails, log this to the console as well
+                print(f"MO2_LOG_FALLBACK [ERROR]: Failed to write to SkyGen_Debug.log: {e}")
+
 
     def close_log_file(self):
         """
