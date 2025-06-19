@@ -447,11 +447,12 @@ class SkyGenToolDialog(QDialog):
         except Exception as e:
             self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.\n{traceback.format_exc()}")
             
-        # Determine the current game name based on mobase.GameType enum or hardcoded fallback
+        # Determine the current game name based on its integer ID
         current_game_name = None
-        if current_game_type == mobase.GameType.SSE:
+        # Assuming mobase.GameType.SSE maps to 1 and mobase.GameType.SkyrimVR maps to 2
+        if current_game_type == 1: # Corresponds to mobase.GameType.SSE
             current_game_name = "SkyrimSE"
-        elif current_game_type == mobase.GameType.SkyrimVR:
+        elif current_game_type == 2: # Corresponds to mobase.GameType.SkyrimVR
             current_game_name = "SkyrimVR"
             
         # Set radio button based on current game, or default to SkyrimSE
