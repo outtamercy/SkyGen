@@ -9,8 +9,8 @@ from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
 import os
 import json
-from typing import Any, Optional, Union, TextIO # ADD TextIO to this import list
-from datetime import datetime # ADD THIS IMPORT
+from typing import Any, Optional, Union, TextIO
+from datetime import datetime
 
 MO2_LOG_CRITICAL = 5
 MO2_LOG_ERROR = 4
@@ -37,18 +37,18 @@ class OrganizerWrapper:
         if self._log_file_handle:
             try:
                 self._log_file_handle.close()
-                self._organizer.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: Closed previous log file handle.")
+                self.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: Closed previous log file handle.") # CHANGED: self._organizer.log -> self.log
             except Exception as e:
-                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close old log file handle: {e}")
+                self.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close old log file handle: {e}") # CHANGED: self._organizer.log -> self.log
         
         self._log_file_path = path
         try:
             # Ensure parent directory exists before opening the file
             path.parent.mkdir(parents=True, exist_ok=True)
             self._log_file_handle = open(path, 'a', encoding='utf-8')
-            self._organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Opened debug log file: {path}")
+            self.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Opened debug log file: {path}") # CHANGED: self._organizer.log -> self.log
         except Exception as e:
-            self._organizer.log(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Could not open debug log file: {path}: {e}")
+            self.log(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Could not open debug log file: {path}: {e}") # CHANGED: self._organizer.log -> self.log
             self._log_file_handle = None
 
     def log(self, level: int, message: str):
@@ -73,7 +73,7 @@ class OrganizerWrapper:
             except Exception as e:
                 self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write to SkyGen_Debug.log: {e}")
 
-    def close_log_file(self): # Ensure this method is present and correct
+    def close_log_file(self):
         """
         Closes the custom debug log file if it's open.
         """
@@ -81,9 +81,9 @@ class OrganizerWrapper:
             try:
                 self._log_file_handle.close()
                 self._log_file_handle = None
-                self._organizer.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: SkyGen_Debug.log file closed successfully.")
+                self.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: SkyGen_Debug.log file closed successfully.") # CHANGED: self._organizer.log -> self.log
             except Exception as e:
-                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close SkyGen_Debug.log: {e}")
+                self.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close SkyGen_Debug.log: {e}") # CHANGED: self._organizer.log -> self.log
 
     # The _open_log_file method in OrganizerWrapper is now handled by set_log_file_path
     # This method is effectively removed as it's no longer necessary.
