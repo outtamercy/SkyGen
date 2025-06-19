@@ -8,6 +8,7 @@ import yaml
 import configparser
 import re
 import traceback
+import shutil # Added shutil for file operations
 from collections import defaultdict
 from typing import Optional, Any
 
@@ -157,7 +158,7 @@ def get_xedit_exe_path(config_data: dict, wrapped_organizer: Any, dialog_instanc
         wrapped_organizer.log(0, f"SkyGen: DEBUG: Auto-detected xEdit from ModOrganizer.ini: {xedit_exe_path_ini} (MO2 name: {xedit_mo2_name_ini})")
         return xedit_exe_path_ini, xedit_mo2_name_ini
     else:
-        wrapped_organizer.log(3, "SkyGen: CRITICAL: xEdit executable not found via config.json or ModOrganizer.ini parsing. Please configure it manually in config.json.")
+        wrapped_organizer.log(3, "SkyGen: CRITICAL: No xEdit executable found via config.json or ModOrganizer.ini parsing. Please configure it manually in config.json.")
         return None, None
 
 
@@ -170,7 +171,7 @@ def get_game_root_from_general_ini(wrapped_organizer: Any, config_data: dict) ->
     game_root_path = None
     # --- Attempt 1: Read from ModOrganizer.ini (most reliable based on user feedback) ---
     # MODIFIED: Using _organizer.basePath()
-    mo2_ini_path = Path(wrapped_organizer._organizer.basePath()) / "ModOrganizer.ini"
+    mo2_ini_path = Path(wrapped_organizer._organizer.basePath()).resolve() / "ModOrganizer.ini"
     if mo2_ini_path.is_file():
         config = configparser.ConfigParser()
         try:
@@ -253,7 +254,7 @@ def detect_root_mode(wrapped_organizer: Any) -> bool:
     # 2. Check for Root Builder ini/settings (if installed)
     # This might depend on Root Builder's specific implementation
     # MODIFIED: Changed to use wrapped_organizer._organizer
-    root_builder_ini_path = Path(wrapped_organizer._organizer.basePath()) / "ModOrganizer.ini" 
+    root_builder_ini_path = Path(wrapped_organizer._organizer.basePath()).resolve() / "ModOrganizer.ini" 
     
     config = configparser.ConfigParser()
     try:
@@ -269,14 +270,14 @@ def detect_root_mode(wrapped_organizer: Any) -> bool:
     return False
 
 
-def write_pas_script_to_xedit(script_path: Path, wrapped_organizer: Any):
+def write_pas_script_to_xedit(script_full_path: Path, wrapped_organizer: Any):
     """
-    Writes the fixed Pascal script content to the specified path within xEdit's script directory.
+    Writes the fixed Pascal script content to the specified full path (xEdit's script directory).
     The content is now hardcoded in this function.
     """
     # Define the Pascal script content as a multi-line Python f-string
     # Removed incorrect escaping of curly braces.
-    script_content = f"""
+    script_content = """
 unit ExportPluginData;
 
 uses
@@ -555,12 +556,12 @@ end.
     """
     try:
         # Ensure the parent directory exists
-        script_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(script_path, 'w', encoding='utf-8') as f:
+        script_full_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(script_full_path, 'w', encoding='utf-8') as f:
             f.write(script_content)
-        wrapped_organizer.log(0, f"SkyGen: DEBUG: Pascal script written to: {script_path}")
+        wrapped_organizer.log(0, f"SkyGen: DEBUG: Pascal script written to: {script_full_path}")
     except Exception as e:
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write Pascal script to {script_path}: {e}\n{traceback.format_exc()}")
+        wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write Pascal script to {script_full_path}: {e}\n{traceback.format_exc()}")
         raise # Re-raise to halt execution if script write fails
 
 
@@ -570,7 +571,7 @@ def run_xedit_export(
     xedit_exe_path: Path,
     xedit_mo2_name: str,
     game_root_path: Path,
-    xedit_script_path: Path,
+    xedit_script_filename: str, # TO THIS
     output_base_dir: Path,
     target_plugin_filename: str,
     game_version: str,
@@ -585,12 +586,14 @@ def run_xedit_export(
     """
     wrapped_organizer.log(1, f"SkyGen: Initiating xEdit export for '{target_plugin_filename}' (Category: '{target_category}')...")
 
-    # The Pascal script content is now fixed and defined within write_pas_script_to_xedit.
-    # No need to call generate_export_script_content here.
-    
-    # We write the script content to xedit_script_path
+    # Define the full path where the Pascal script will be written in xEdit's script directory
+    xedit_script_dir = xedit_exe_path.parent / "Edit Scripts"
+    xedit_script_dir.mkdir(parents=True, exist_ok=True) # Ensure xEdit's script directory exists
+    xedit_target_script_path = xedit_script_dir / xedit_script_filename
+
+    # We write the script content directly to xEdit's script path
     try:
-        write_pas_script_to_xedit(xedit_script_path, wrapped_organizer)
+        write_pas_script_to_xedit(xedit_target_script_path, wrapped_organizer)
     except Exception as e:
         dialog.showError("Script Write Error", f"Failed to write xEdit Pascal script:\n{e}")
         return None
@@ -622,13 +625,34 @@ def run_xedit_export(
         f"BroadCategorySwap='{str(broad_category_swap_enabled).lower()}'",
         f"Keywords='{keywords}'" # Keywords string passed as-is
     ]
-    # Combine script filename with options for AutoRun
-    ini_script_args = f"'{xedit_script_path.name}' " + " ".join([f"-scriptoption:{opt}" for opt in script_options])
-
 
     # Ensure the current working directory for xEdit is the game's root directory
     # This is crucial for xEdit to find game data correctly.
     xedit_cwd = str(game_root_path)
+
+    # NEW: Pre-load xEdit to force MO2 VFS engagement
+    wrapped_organizer.log(0, "SkyGen: DEBUG: Pre-loading xEdit to force MO2 VFS engagement...")
+    # Launch xEdit briefly in a hidden, autoloading mode to prime the VFS
+    preload_args = [
+        f"-{game_version.replace('Skyrim', '').upper()}" if game_version and game_version.startswith("Skyrim") else "",
+        "-quickshow",  # Keep UI hidden
+        "-autoload",   # Load plugins automatically
+        "-exit"        # Exit immediately after loading
+    ]
+    preload_args = [arg for arg in preload_args if arg] # Filter out empty strings
+    
+    preload_success = wrapped_organizer._organizer.startApplication(
+        xedit_mo2_name, # Use the actual xEdit executable name
+        preload_args,
+        str(game_root_path) # Use game root as CWD
+    )
+    if not preload_success:
+        wrapped_organizer.log(2, "SkyGen: WARNING: xEdit pre-load for VFS engagement failed. Proceeding anyway.")
+    else:
+        # Give MO2 a moment to fully engage the VFS after the preload process
+        time.sleep(1.0) # Increased sleep for more robust VFS engagement
+        wrapped_organizer.log(0, "SkyGen: DEBUG: xEdit pre-load executed, VFS should be engaged.")
+
 
     wrapped_organizer.log(1, f"SkyGen: Launching xEdit '{xedit_mo2_name}' for export...")
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit binary: {xedit_exe_path}")
@@ -642,13 +666,14 @@ def run_xedit_export(
         xedit_args = [
             # Game version argument (e.g., -SSE, -VR). Empty string if not applicable.
             f"-{game_version.replace('Skyrim', '').upper()}" if game_version and game_version.startswith("Skyrim") else "",
-            "-o", str(game_root_path),       # Set game root (important for xEdit to find game data)
-            "-r",                            # Recommended: Force xEdit to use clean masters
-            "-P:" + str(xedit_script_path),  # Path to the Pascal script
-            # Add the script options as direct command-line arguments for xEdit
-        ] + [f"-scriptoption:{opt}" for opt in script_options]  # Append script options
-
-        # Filter out any empty strings from xedit_args (e.g., if game_version arg is empty)
+            "-r",                                # Recommended: Force xEdit to use clean masters
+            "-quickshow",                        # Prevents xEdit from opening its UI
+            "-autoload",                         # Loads all plugins without prompt
+            "-AutoExit",                         # NEW: Force xEdit to exit automatically
+            "-Quit",                             # NEW: Another command to ensure exit
+            f"-script:{xedit_script_filename}", # Uses the script already in Edit Scripts folder
+        ] + [f"-scriptoption:{opt}" for opt in script_options]
+            # Filter out any empty strings from xedit_args (e.g., if game_version arg is empty)
         xedit_args = [arg for arg in xedit_args if arg]
 
         wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit arguments for startApplication: {xedit_args}")
@@ -861,16 +886,38 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
         return False
 
 
-def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_organizer: Any):
+def clean_temp_script_and_ini(xedit_exe_path: Path, output_json_path: Path, xedit_script_filename: str, wrapped_organizer: Any):
     """
-    Cleans up the temporary Pascal script. The xEdit-generated INI file is no longer created by the plugin.
+    Cleans up the Pascal script from xEdit's script directory, and the xEdit-generated
+    log and JSON output files.
     """
-    # Clean up the Pascal script
-    if script_path.exists():
-        try:
-            script_path.unlink()
-            wrapped_organizer.log(1, f"SkyGen: Deleted temporary xEdit script: {script_path}")
-        except Exception as e:
-            wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit script '{script_path}': {e}")
-    # The xEdit INI file cleanup is no longer needed here as the plugin does not create it.
+    # Recalculate xedit_target_script_path for deletion
+    xedit_script_dir = xedit_exe_path.parent / "Edit Scripts"
+    xedit_target_script_path = xedit_script_dir / xedit_script_filename
 
+    # Clean up the Pascal script from xEdit's script directory
+    if xedit_target_script_path.exists():
+        try:
+            xedit_target_script_path.unlink()
+            wrapped_organizer.log(1, f"SkyGen: Deleted Pascal script from xEdit's script directory: {xedit_target_script_path}")
+        except Exception as e:
+            wrapped_organizer.log(2, f"SkyGen: Failed to delete Pascal script '{xedit_target_script_path}': {e}")
+
+    # Define the expected log path based on the output JSON path
+    expected_log_path = output_json_path.with_suffix('.log')
+
+    # Clean up the xEdit-generated JSON output
+    if output_json_path.exists():
+        try:
+            output_json_path.unlink()
+            wrapped_organizer.log(1, f"SkyGen: Deleted xEdit output JSON: {output_json_path}")
+        except Exception as e:
+            wrapped_organizer.log(2, f"SkyGen: Failed to delete xEdit output JSON '{output_json_path}': {e}")
+            
+    # Clean up the xEdit-generated log file
+    if expected_log_path.exists():
+        try:
+            expected_log_path.unlink()
+            wrapped_organizer.log(1, f"SkyGen: Deleted xEdit output log: {expected_log_path}")
+        except Exception as e:
+            wrapped_organizer.log(2, f"SkyGen: Failed to delete xEdit output log '{expected_log_path}': {e}")
