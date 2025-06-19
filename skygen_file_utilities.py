@@ -275,7 +275,7 @@ def write_pas_script_to_xedit(script_path: Path, wrapped_organizer: Any):
     The content is now hardcoded in this function.
     """
     # Define the Pascal script content as a multi-line Python f-string
-    # Fixed: Removed the extraneous '{{' on line 311 and ensuring clean 'end.'
+    # Removed incorrect escaping of curly braces.
     script_content = f"""
 unit ExportPluginData;
 
@@ -311,6 +311,15 @@ var
   i: Integer;
   Keyword: string;
   MatchFound: Boolean;
+  WorldspacePath: string; // Declared
+  WorldspaceFormID: string; // Declared
+  WorldspaceName: string; // Declared
+  VMADElement: IInterface; // Declared for VMAD iteration
+  PropElement: IInterface; // Declared for VMAD iteration
+  KeywordFormID: string; // Declared for VMAD iteration
+  KeywordEditorID: string; // Declared for VMAD iteration
+  KeywordName: string; // Declared for VMAD iteration
+  KeywordObject: TJSONObject; // Declared for VMAD iteration
 begin
   Result := 0; // Initialize to success
 
@@ -356,7 +365,7 @@ begin
         Keyword := Trim(Keyword);
         if Keyword <> '' then
         begin
-          if Pos(Keyword, EditorID) > 0 then // Case-sensitive check
+          if Pos(Keyword, EditorID) > 0 then // Case-sensitive check. NOTE: EditorID must be populated before this.
           begin
             MatchFound := True;
             Break;
@@ -370,7 +379,7 @@ begin
 
     // Extract data
     FormID := IntToHex(ARecord.GetFormID, 8); // Format as 8-digit hex string
-    EditorID := ARecord.GetEditorID;
+    EditorID := ARecord.GetEditorID; // Ensure EditorID is populated here
     FullName := ARecord.GetName;
     OriginMod := GetElementFile(ARecord).FileName;
     // Get Parent Name for certain record types (e.g., ARMA parent ARMOR)
@@ -406,7 +415,7 @@ begin
         WorldspacePath := 'PNAM'; // Standard path for Worldspace for CELLs
         if HasElement(ARecord, WorldspacePath) then
         begin
-            WorldspaceFormID := GetFormID(GetElement(ARecord, WorldspacePath));
+            WorldspaceFormID := IntToHex(GetFormID(GetElement(ARecord, WorldspacePath)), 8);
             WorldspaceName := Name(GetElement(ARecord, WorldspacePath));
             ItemJSON.Add('WorldspaceFormID', WorldspaceFormID);
             ItemJSON.Add('WorldspaceName', EscapeJsonString(WorldspaceName));
@@ -417,7 +426,7 @@ begin
         WorldspacePath := 'WRLD'; // Standard path for Worldspace
         if HasElement(ARecord, WorldspacePath) then
         begin
-            WorldspaceFormID := GetFormID(GetElement(ARecord, WorldspacePath));
+            WorldspaceFormID := IntToHex(GetFormID(GetElement(ARecord, WorldspacePath)), 8);
             WorldspaceName := Name(GetElement(ARecord, WorldspacePath));
             ItemJSON.Add('WorldspaceFormID', WorldspaceFormID);
             ItemJSON.Add('WorldspaceName', EscapeJsonString(WorldspaceName));
@@ -465,7 +474,7 @@ begin
                     if Assigned(PropElement) then
                     begin
                         // Get the Value (FormID of the Keyword)
-                        KeywordFormID := GetFormID(ElementByPath(PropElement, 'Value'));
+                        KeywordFormID := IntToHex(GetFormID(ElementByPath(PropElement, 'Value')), 8);
                         if (KeywordFormID <> '') then
                         begin
                             KeywordEditorID := EditorID(GetElement(PropElement, 'Value'));
@@ -864,3 +873,4 @@ def clean_temp_script_and_ini(xedit_exe_path: Path, script_path: Path, wrapped_o
         except Exception as e:
             wrapped_organizer.log(2, f"SkyGen: Failed to delete temporary xEdit script '{script_path}': {e}")
     # The xEdit INI file cleanup is no longer needed here as the plugin does not create it.
+

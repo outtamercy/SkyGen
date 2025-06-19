@@ -25,7 +25,7 @@ from .skygen_file_utilities import (
 # or for dummy QMessageBox if needed for initial checks.
 # Only import what's strictly necessary for *this* file's display method or plugin tool.
 try:
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog # Import QDialog here
     from PyQt6.QtGui import QIcon # QIcon is used by the plugin tool directly
 except ImportError:
     print("One or more required PyQt modules are not installed. Please ensure PyQt6 is installed.")
@@ -58,6 +58,11 @@ except ImportError:
             pass
         def setSizePolicy(self, policy):
             pass
+    class QDialog: # Dummy QDialog if not available
+        Accepted = 1 # Define Accepted constant
+        Rejected = 0 # Define Rejected constant
+        def __init__(self, *args, **kwargs): pass
+        def exec(self): return QDialog.Rejected # Default to Rejected
 
 
 def createPlugin() -> mobase.IPluginTool:
@@ -184,7 +189,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         self.dialog.game_root_path = self.game_root_path
 
         # If the dialog is accepted (Generate button clicked)
-        if self.dialog.exec() == self.mobase.DialogCode.Accepted:
+        if self.dialog.exec() == 1: # QDialog.Accepted is typically 1, use direct integer for robustness
             self.wrapped_organizer.log(1, "SkyGen: Dialog accepted. Starting generation process.")
             
             # Retrieve values from dialog
@@ -291,7 +296,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             game_root_path=self.game_root_path,
                             xedit_script_path=xedit_script_path,
                             output_base_dir=output_folder_path,
-                            target_plugin_filename=source_plugin_filename, # This is the plugin we're extracting data FROM
+                            target_plugin_filename=source_mod_plugin_filename, # This is the plugin we're extracting data FROM
                             game_version=self.dialog.selected_game_version,
                             target_mod_display_name=current_source_mod_display_name, # For logging context
                             target_category=category, # Pass the specific category for source export
