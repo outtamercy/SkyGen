@@ -9,8 +9,8 @@ from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
 import os
 import json
-from typing import Any, Optional, Union
-import traceback # Import traceback for detailed error logging
+from typing import Any, Optional, Union, TextIO # ADD TextIO to this import list
+from datetime import datetime # ADD THIS IMPORT
 
 MO2_LOG_CRITICAL = 5
 MO2_LOG_ERROR = 4
@@ -26,34 +26,70 @@ class OrganizerWrapper:
     def __init__(self, organizer: 'mobase.IOrganizer'):
         self._organizer = organizer
         self._log_file_path: Optional[Path] = None
-        self._log_file_handle: Optional[Any] = None
-        self._log_initialized = False
-        # ... other initialization ...
+        self._log_file_handle: Optional[TextIO] = None # Type hint for file handle
+        # self._log_initialized = False # This flag is no longer strictly needed with the new set_log_file_path logic
 
     def set_log_file_path(self, path: Path):
+        """
+        Sets the path for the debug log file and attempts to open it.
+        Closes any existing file handle before opening a new one.
+        """
+        if self._log_file_handle:
+            try:
+                self._log_file_handle.close()
+                self._organizer.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: Closed previous log file handle.")
+            except Exception as e:
+                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close old log file handle: {e}")
+        
         self._log_file_path = path
-        pass  # Set additional properties if needed
+        try:
+            # Ensure parent directory exists before opening the file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file_handle = open(path, 'a', encoding='utf-8')
+            self._organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Opened debug log file: {path}")
+        except Exception as e:
+            self._organizer.log(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Could not open debug log file: {path}: {e}")
+            self._log_file_handle = None
 
-    def _open_log_file(self):
-        if self._log_file_handle:
-            pass  # Close or reinitialize if needed
-        if self._log_file_path:
-            pass  # Insert code to open the file
-        else:
-            pass  # Handle error or fallback
+    def log(self, level: int, message: str):
+        """
+        Logs a message to MO2's main log pane and to the custom debug log file.
+        """
+        self._organizer.log(level, message) # Log to MO2's main log pane
 
-    def log(self, mo2_log_level: int, message: str):
-        full_message = f"[{self.get_level_name(mo2_log_level)}] {message}"
-        if not self._log_initialized:
-            pass  # Initialize log file or settings here
         if self._log_file_handle:
-            pass  # Write full_message to log file
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                level_name = {
+                    MO2_LOG_TRACE: "TRACE",
+                    MO2_LOG_DEBUG: "DEBUG",
+                    MO2_LOG_INFO: "INFO",
+                    MO2_LOG_WARNING: "WARNING",
+                    MO2_LOG_ERROR: "ERROR",
+                    MO2_LOG_CRITICAL: "CRITICAL"
+                }.get(level, "UNKNOWN")
+                self._log_file_handle.write(f"[{timestamp} {level_name}] {message}\n")
+                self._log_file_handle.flush() # NEW: Force write to disk immediately
+            except Exception as e:
+                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write to SkyGen_Debug.log: {e}")
 
-    def close_log_file(self):
+    def close_log_file(self): # Ensure this method is present and correct
+        """
+        Closes the custom debug log file if it's open.
+        """
         if self._log_file_handle:
-            pass  # Close the file and reset _log_file_handle
+            try:
+                self._log_file_handle.close()
+                self._log_file_handle = None
+                self._organizer.log(MO2_LOG_DEBUG, "SkyGen: DEBUG: SkyGen_Debug.log file closed successfully.")
+            except Exception as e:
+                self._organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to close SkyGen_Debug.log: {e}")
+
+    # The _open_log_file method in OrganizerWrapper is now handled by set_log_file_path
+    # This method is effectively removed as it's no longer necessary.
 
     def get_level_name(self, level: int) -> str:
+        """Returns the string name for a given log level."""
         if level == MO2_LOG_CRITICAL:
             return "CRITICAL"
         if level == MO2_LOG_ERROR:
@@ -292,20 +328,14 @@ class SkyGenToolDialog(QDialog):
         general_settings_group = QGroupBox("General Settings")
         general_settings_layout = QVBoxLayout()
 
-        # Replacement: Game Version (QRadioButtons)
-        game_version_group = QGroupBox("Game Version") # Use a group box for radio buttons
+        # Game Version
         game_version_layout = QHBoxLayout()
-        self.game_version_se_radio = QRadioButton("SkyrimSE")
-        self.game_version_vr_radio = QRadioButton("SkyrimVR")
-        # Connect signals to a new handler function
-        self.game_version_se_radio.toggled.connect(lambda: self._on_game_version_radio_toggled("SkyrimSE"))
-        self.game_version_vr_radio.toggled.connect(lambda: self._on_game_version_radio_toggled("SkyrimVR"))
-
-        game_version_layout.addWidget(self.game_version_se_radio)
-        game_version_layout.addWidget(self.game_version_vr_radio)
-        game_version_layout.addStretch(1) # Push radios to the left
-        game_version_group.setLayout(game_version_layout)
-        general_settings_layout.addWidget(game_version_group) # Add the group box to general settings
+        game_version_label = QLabel("Game Version:")
+        self.game_version_combo = QComboBox()
+        self.game_version_combo.currentIndexChanged.connect(self._on_game_version_selected)
+        game_version_layout.addWidget(game_version_label)
+        game_version_layout.addWidget(self.game_version_combo)
+        general_settings_layout.addLayout(game_version_layout)
 
         # Output Folder
         output_folder_layout = QHBoxLayout()
@@ -426,49 +456,52 @@ class SkyGenToolDialog(QDialog):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
 
-    def _on_game_version_radio_toggled(self, game_version_name: str):
-        """Handles changes in the game version radio buttons."""
-        if self.sender().isChecked(): # Check if the radio button that sent the signal is checked
-            self.selected_game_version = game_version_name
-            self.wrapped_organizer.log(0, f"SkyGen: Game version selected: {self.selected_game_version}")
-            self._save_config()
-
-
     def _populate_game_versions(self):
-        """Sets the initial state of the game version radio buttons."""
-        current_game_type = None
-        # Safely attempt to get the current game type from the organizer using .currentGame()
-        try:
-            current_game_info = self.wrapped_organizer.currentGame() # Using the wrapped method
-            if current_game_info is not None and hasattr(current_game_info, 'type'):
-                current_game_type = current_game_info.type()
-        except AttributeError:
-            self.wrapped_organizer.log(3, "SkyGen: WARNING: 'mobase.IOrganizer' object has no attribute 'currentGame' or 'IGameInfo' object has no attribute 'type'. Defaulting to no specific current game.")
-        except Exception as e:
-            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.\n{traceback.format_exc()}")
-            
-        # Determine the current game name based on its integer ID
-        current_game_name = None
-        # Assuming mobase.GameType.SSE maps to 1 and mobase.GameType.SkyrimVR maps to 2
-        if current_game_type == 1: # Corresponds to mobase.GameType.SSE
-            current_game_name = "SkyrimSE"
-        elif current_game_type == 2: # Corresponds to mobase.GameType.SkyrimVR
-            current_game_name = "SkyrimVR"
-            
-        # Set radio button based on current game, or default to SkyrimSE
-        if current_game_name == "SkyrimSE":
-            self.game_version_se_radio.setChecked(True)
-            self.selected_game_version = "SkyrimSE"
-        elif current_game_name == "SkyrimVR":
-            self.game_version_vr_radio.setChecked(True)
-            self.selected_game_version = "SkyrimVR"
-        else:
-            # Default to SkyrimSE if current game not detected or not supported
-            self.game_version_se_radio.setChecked(True)
-            self.selected_game_version = "SkyrimSE" # Explicitly set default
-
-        self.wrapped_organizer.log(0, f"SkyGen: Initial game version set to: {self.selected_game_version}")
+        """Populates the game version combobox with only supported game types (SkyrimSE, SkyrimVR).
+        This version is robust against mobase.GameType not being available during early plugin load.
+        """
+        supported_games_map = {}
         
+        # Check if mobase.GameType is available. If not, use hardcoded strings directly.
+        if hasattr(mobase, 'GameType'):
+            self.wrapped_organizer.log(0, "SkyGen: DEBUG: mobase.GameType found. Using mobase enum values.")
+            supported_games_map[mobase.GameType.SSE] = "SkyrimSE"
+            supported_games_map[mobase.GameType.SkyrimVR] = "SkyrimVR"
+        else:
+            self.wrapped_organizer.log(3, "SkyGen: WARNING: mobase.GameType not found. Using hardcoded game versions as fallback.")
+            # If GameType enum is not available, default to common names with arbitrary keys
+            supported_games_map[0] = "SkyrimSE" # Using 0 and 1 as arbitrary keys for the map
+            supported_games_map[1] = "SkyrimVR"
+            
+        current_game_type = None
+        # Safely attempt to get the current game type from the organizer using currentGame()
+        try:
+            # MODIFIED: Changed from gameInfo().type() to currentGame().type()
+            if hasattr(self.wrapped_organizer, 'currentGame') and self.wrapped_organizer.currentGame() is not None and hasattr(self.wrapped_organizer.currentGame(), 'type'):
+                current_game_type = self.wrapped_organizer.currentGame().type()
+        except Exception as e:
+            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.")
+
+        self.game_version_combo.clear()
+        
+        # Logic to add current game first, if it's supported and detectable
+        current_game_name = supported_games_map.get(current_game_type)
+        
+        if current_game_name:
+            self.game_version_combo.addItem(current_game_name)
+            self.selected_game_version = current_game_name
+            
+            # Add other supported games, excluding the one already added
+            other_game_names = [name for key, name in supported_games_map.items() if name != current_game_name]
+            self.game_version_combo.addItems(sorted(other_game_names))
+        else:
+            # If current game is not supported or could not be determined, just add all sorted supported games
+            sorted_names = sorted(supported_games_map.values())
+            self.game_version_combo.addItems(sorted_names)
+            if sorted_names:
+                self.selected_game_version = self.game_version_combo.currentText() # Set initial selection to first item
+        
+        self.wrapped_organizer.log(0, f"SkyGen: Populated game versions: {self.game_version_combo.currentText()}")
 
 
     def _populate_categories(self):
@@ -540,7 +573,8 @@ class SkyGenToolDialog(QDialog):
         Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
         # Get the IMod object
-        mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) # Changed to use wrapped_organizer.modList()
+        # MODIFIED: Changed to use wrapped_organizer._organizer.modList().getMod()
+        mod_obj = self.wrapped_organizer._organizer.modList().getMod(mod_internal_name) 
         if not mod_obj:
             self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
@@ -573,19 +607,6 @@ class SkyGenToolDialog(QDialog):
             return sorted_plugins[0].name
         
         self.wrapped_organizer.log(2, f"SkyGen: WARNING: No plugin file (.esp, .esm, .esl) found for active mod '{mod_display_name}' ({mod_internal_name}).")
-        return None
-
-    def _get_internal_mod_name_from_display_name(self, mod_display_name: str) -> Optional[str]:
-        """
-        Attempts to get the internal mod name (used by MO2's lookupMod) from its display name.
-        Iterates through all mods to find a match, as direct lookup by display name isn't reliable.
-        """
-        mod_list = self.wrapped_organizer.modList()
-        for internal_name in mod_list.allMods():
-            if mod_list.displayName(internal_name) == mod_display_name:
-                self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found internal name '{internal_name}' for display name '{mod_display_name}'.")
-                return internal_name
-        self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find internal mod name for display name '{mod_display_name}'.")
         return None
 
 
@@ -624,6 +645,12 @@ class SkyGenToolDialog(QDialog):
             self.generate_all_checkbox.setVisible(False) # Hide for BOS INI
             self.wrapped_organizer.log(0, "SkyGen: Output type set to BOS INI.")
         self._save_config() # Save setting when toggled
+
+
+    def _on_game_version_selected(self):
+        self.selected_game_version = self.game_version_combo.currentText()
+        self.wrapped_organizer.log(0, f"SkyGen: Game version selected: {self.selected_game_version}")
+        self._save_config()
 
 
     def _on_target_mod_selected(self):
@@ -680,15 +707,11 @@ class SkyGenToolDialog(QDialog):
                     self.bos_ini_radio.setChecked(True)
                 self._on_output_type_toggled() # Trigger visibility update
                 
-                # Replacement: Apply settings for game version (QRadioButtons)
-                game_version_from_config = config.get("game_version", "SkyrimSE") # Default to SkyrimSE if not found
-                if game_version_from_config == "SkyrimSE":
-                    self.game_version_se_radio.setChecked(True)
-                elif game_version_from_config == "SkyrimVR":
-                    self.game_version_vr_radio.setChecked(True)
-                # No else needed, as _populate_game_versions would have set a default already
-                self.selected_game_version = game_version_from_config # Ensure internal state is updated
-
+                # Apply general settings
+                self.game_version_combo.setCurrentIndex(
+                    self.game_version_combo.findText(config.get("game_version", self.game_version_combo.currentText()))
+                )
+                
                 self.output_folder_lineEdit.setText(config.get("output_folder_path", str(Path(self.wrapped_organizer.basePath()) / "overwrite")))
                 self.output_folder_path = self.output_folder_lineEdit.text()
 
@@ -728,7 +751,7 @@ class SkyGenToolDialog(QDialog):
         config_path = self._get_config_path()
         config_data = {
             "output_type": self.selected_output_type,
-            "game_version": self.selected_game_version, # This line remains the same as it correctly uses the updated internal state
+            "game_version": self.game_version_combo.currentText(),
             "output_folder_path": self.output_folder_lineEdit.text(),
             "target_mod_name": self.target_mod_combo.currentText(),
             "source_mod_name": self.source_mod_combo.currentText(),
@@ -765,4 +788,3 @@ class SkyGenToolDialog(QDialog):
         """Displays an information message box."""
         QMessageBox.information(self, title, message)
         self.wrapped_organizer.log(2, f"SkyGen: UI Info: {title} - {message}")
-

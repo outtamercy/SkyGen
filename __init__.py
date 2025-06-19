@@ -299,7 +299,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             game_root_path=self.game_root_path,
                             xedit_script_filename=xedit_script_filename, # CHANGED
                             output_base_dir=output_folder_path,
-                            target_plugin_filename=source_plugin_filename, # This is the plugin we're extracting data FROM
+                            target_plugin_filename=source_mod_plugin_filename, # This is the plugin we're extracting data FROM
                             game_version=self.dialog.selected_game_version,
                             target_mod_display_name=current_source_mod_display_name, # For logging context
                             target_category=category, # Pass the specific category for source export
@@ -317,7 +317,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                                     wrapped_organizer=self.wrapped_organizer,
                                     category=category,
                                     target_mod_plugin_name=target_plugin_filename, # Target is the single target mod
-                                    source_mod_plugin_name=source_plugin_filename,
+                                    source_mod_plugin_name=source_mod_plugin_filename,
                                     source_mod_display_name=current_source_mod_display_name,
                                     source_mod_base_objects=source_exported_json["baseObjects"],
                                     all_exported_target_bases_by_formid=all_exported_target_bases_by_formid,
@@ -413,7 +413,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         self.wrapped_organizer.log(3, "SkyGen: ERROR: Failed to export source mod data. Aborting YAML generation.")
                         self.dialog.showError("xEdit Export Failed", "Failed to export data from the Source Mod. Check xEdit logs for details.")
                         # Updated cleanup call with correct output path and script filename
-                        clean_temp_script_and_ini(self.xedit_exe_path, output_folder_path / "SkyGen_xEdit_Export.json", xedit_script_filename, wrapped_organizer=self.wrapped_organizer)
+                        clean_temp_script_and_ini(self.xedit_exe_path, output_folder_path / "SkyGen_xedit_Export.json", xedit_script_filename, wrapped_organizer=self.wrapped_organizer)
                         return
 
                     source_exported_json = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self.dialog)
@@ -457,12 +457,22 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         else:
             self.wrapped_organizer.log(1, "SkyGen: Dialog cancelled by user. No action taken.")
 
+    def deinit(self):
+        """
+        Called by MO2 when the plugin is being unloaded.
+        Ensures the custom debug log file is properly closed.
+        """
+        if self.wrapped_organizer:
+            self.wrapped_organizer.log(1, "SkyGen: Plugin de-initializing. Closing debug log file.")
+            self.wrapped_organizer.close_log_file()
+        return True
+
     def __tr(self, str_):
         return self.mobase.qtTr(str_, self.name())
 
-    def _open_log_file(self):
+    def _open_log_file(self): # This method is unused and can be removed, or left with 'pass'
         if self._log_file_handle:
-            pass  # Empty block fixed with pass
+            pass
         if self._log_file_path:
             pass
         else:
