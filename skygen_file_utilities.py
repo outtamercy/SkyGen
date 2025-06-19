@@ -493,7 +493,7 @@ begin
             // This finally block might free KeywordsArray prematurely if it's meant for outer scope.
             // If KeywordsArray is added to ItemJSON, then ItemJSON owns it and should free it later.
             // Removing `KeywordsArray.Free;` from here to prevent double-free or premature freeing.
-            // KeywordsArray.Free; // Moved or removed based on usage. If added to ItemJSON, ItemJSON handles freeing.
+            # KeywordsArray.Free; // Moved or removed based on usage. If added to ItemJSON, ItemJSON handles freeing.
         end;
         // Re-check after populating if any keywords were actually found
         if KeywordsArray.Count > 0 then
@@ -617,45 +617,24 @@ def run_xedit_export(
     # Construct arguments for xEdit's AutoRun INI setting
     # These will be read by the Pascal script using GetScriptOption
     script_options = [
-        f"TargetPlugin={target_plugin_filename}", # Removed single quotes
-        f"OutputFilePath={expected_output_path.as_posix().replace('\\', '/')}", # Removed single quotes
-        f"TargetCategory={target_category if target_category else ''}", # Removed single quotes
-        f"BroadCategorySwap={str(broad_category_swap_enabled).lower()}", # Removed single quotes
-        f"Keywords={keywords}" # Removed single quotes
+        f"TargetPlugin={target_plugin_filename}", # NO single quotes around the value
+        f"OutputFilePath={expected_output_path.as_posix().replace('\\', '/')}", # NO single quotes
+        f"TargetCategory={target_category if target_category else ''}", # NO single quotes
+        f"BroadCategorySwap={str(broad_category_swap_enabled).lower()}", # NO single quotes
+        f"Keywords={keywords}" # NO single quotes
     ]
 
     # Ensure the current working directory for xEdit is the game's root directory
     # This is crucial for xEdit to find game data correctly.
     xedit_cwd = str(game_root_path)
 
-    # NEW: Pre-load xEdit to force MO2 VFS engagement
-    wrapped_organizer.log(0, "SkyGen: DEBUG: Pre-loading xEdit to force MO2 VFS engagement...")
-    # Launch xEdit briefly in a hidden, autoloading mode to prime the VFS
-    preload_args = [
-        f"-{game_version.replace('Skyrim', '').upper()}" if game_version and game_version.startswith("Skyrim") else "",
-        "-quickshow",  # Keep UI hidden
-        "-autoload",   # Load plugins automatically
-        "-exit"        # Exit immediately after loading
-    ]
-    preload_args = [arg for arg in preload_args if arg] # Filter out empty strings
-    
-    preload_success = wrapped_organizer._organizer.startApplication(
-        xedit_mo2_name, # Use the actual xEdit executable name
-        preload_args,
-        str(game_root_path) # Use game root as CWD
-    )
-    if not preload_success:
-        wrapped_organizer.log(2, "SkyGen: WARNING: xEdit pre-load for VFS engagement failed. Proceeding anyway.")
-    else:
-        # Give MO2 a moment to fully engage the VFS after the preload process
-        time.sleep(1.0) # Increased sleep for more robust VFS engagement
-        wrapped_organizer.log(0, "SkyGen: DEBUG: xEdit pre-load executed, VFS should be engaged.")
-
-
+    # The xEdit preload block has been REMOVED as it was causing double launches.
+    # It used to be here:
+    # wrapped_organizer.log(0, "SkyGen: DEBUG: Pre-loading xEdit to force MO2 VFS engagement...")
+    # ... (preload_args, startApplication, time.sleep) ...
+    # wrapped_organizer.log(0, "SkyGen: DEBUG: xEdit pre-load executed, VFS should be engaged.")
     wrapped_organizer.log(1, f"SkyGen: Launching xEdit '{xedit_mo2_name}' for export...")
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit binary: {xedit_exe_path}")
-    # The `ini_script_args` variable is no longer needed after these changes,
-    # but the log message is left for context to show what *was* being passed via INI.
     wrapped_organizer.log(0, f"SkyGen: DEBUG: xEdit CWD: {xedit_cwd}")
 
     process = None
@@ -679,7 +658,7 @@ def run_xedit_export(
         # Use organizer.startApplication to launch xEdit with VFS integration
         # The first argument is the MO2 executable name, second is a list of arguments for that executable.
         # The last argument is the working directory (game root).
-        success = wrapped_organizer._organizer.startApplication(xedit_mo2_name, xedit_args, xedit_cwd) # MODIFIED: direct access
+        success = wrapped_organizer._organizer.startApplication(xedit_mo2_name, xedit_args, xedit_cwd)
         
         if not success:
             dialog.showError("xEdit Launch Error", f"Failed to launch xEdit ('{xedit_mo2_name}'). Check MO2's main log for details.")
