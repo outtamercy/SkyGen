@@ -525,7 +525,7 @@ class SkyGenToolDialog(QDialog):
         Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
         # Get the IMod object
-        mod_obj = self.wrapped_organizer.organizer.getMod(mod_internal_name) # MODIFIED LINE
+        mod_obj = self.wrapped_organizer._organizer.getMod(mod_internal_name) # MODIFIED LINE: Corrected to _organizer
         if not mod_obj:
             self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
