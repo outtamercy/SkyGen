@@ -10,6 +10,7 @@ from pathlib import Path
 import os
 import json
 from typing import Any, Optional, Union
+import traceback # Import traceback for detailed error logging
 
 MO2_LOG_CRITICAL = 5
 MO2_LOG_ERROR = 4
@@ -136,6 +137,16 @@ class OrganizerWrapper:
         except Exception as e:
             self.log(MO2_LOG_ERROR, f"Error in modPath: {e}")
             return ""
+    
+    # NEW METHOD: currentGame
+    def currentGame(self):
+        """Delegates to mobase.IOrganizer.currentGame()."""
+        try:
+            return self._organizer.currentGame()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in currentGame: {e}")
+            return None
+
 
 # Dummy classes for PyQt6 if not available.
 try:
@@ -427,13 +438,16 @@ class SkyGenToolDialog(QDialog):
             supported_games_map[1] = "SkyrimVR"
             
         current_game_type = None
-        # Safely attempt to get the current game type from the organizer
+        # Safely attempt to get the current game type from the organizer using .currentGame()
         try:
-            if hasattr(self.wrapped_organizer, 'gameInfo') and self.wrapped_organizer.gameInfo() is not None and hasattr(self.wrapped_organizer.gameInfo(), 'type'):
-                current_game_type = self.wrapped_organizer.gameInfo().type()
+            current_game_info = self.wrapped_organizer.currentGame() # Using the wrapped method
+            if current_game_info is not None and hasattr(current_game_info, 'type'):
+                current_game_type = current_game_info.type()
+        except AttributeError:
+            self.wrapped_organizer.log(3, "SkyGen: WARNING: 'mobase.IOrganizer' object has no attribute 'currentGame' or 'IGameInfo' object has no attribute 'type'. Defaulting to no specific current game.")
         except Exception as e:
-            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.")
-
+            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.\n{traceback.format_exc()}")
+            
         self.game_version_combo.clear()
         
         # Logic to add current game first, if it's supported and detectable
@@ -525,7 +539,7 @@ class SkyGenToolDialog(QDialog):
         Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
         # Get the IMod object
-        mod_obj = self.wrapped_organizer._organizer.getMod(mod_internal_name) # MODIFIED LINE: Corrected to _organizer
+        mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) # Changed to use wrapped_organizer.modList()
         if not mod_obj:
             self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
