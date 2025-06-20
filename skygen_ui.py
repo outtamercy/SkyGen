@@ -57,10 +57,6 @@ class OrganizerWrapper:
     def log(self, mo2_log_level: int, message: str):
         full_message = f"[{self.get_level_name(mo2_log_level)}] {message}"
         
-        # Log to MO2's internal log
-        if self._organizer and hasattr(self._organizer, 'log'):
-            self._organizer.log(mo2_log_level, message)
-        
         # Log to custom debug file
         if self._log_file_handle and self._log_initialized:
             try:
@@ -70,6 +66,10 @@ class OrganizerWrapper:
                 # Fallback if writing to log file fails
                 print(f"SkyGen: ERROR: Failed to write to log file: {e}")
                 self._log_file_handle = None # Disable further attempts for this session
+        else:
+            # Fallback to console print if custom log file is not initialized
+            print(full_message)
+
 
     def close_log_file(self):
         if self._log_file_handle:
@@ -136,6 +136,7 @@ class OrganizerWrapper:
             return ""
 
     def gameInfo(self):
+        """Delegates to mobase.IOrganizer.gameInfo()."""
         try:
             return self._organizer.gameInfo()
         except Exception as e:
@@ -252,7 +253,10 @@ except ImportError:
             pass
 
     class Qt:
-        pass
+        WindowContextHelpButtonHint = 0
+        CheckState = type('CheckState', (object,), {'Checked': type('Checked', (object,), {'value': 2})})
+        WindowStaysOnTopHint = 0 # Added for safety
+
 
 class SkyGenToolDialog(QDialog):
     """
@@ -281,7 +285,7 @@ class SkyGenToolDialog(QDialog):
         self.determined_xedit_executable_name: str = ""
         self.game_root_path: Optional[Path] = None
         self.generate_all = False # For 'Generate All' checkbox state
-        self.executables_dict = {} # ADDED: Initialize dictionary to store executables from INI parsing
+        self.executables_dict = {} # Initialize dictionary to store executables from INI parsing
         self.pre_exported_xedit_json_path = "" # Added this as it's referenced in plugin.py
 
 
@@ -317,14 +321,20 @@ class SkyGenToolDialog(QDialog):
         general_settings_group = QGroupBox("General Settings")
         general_settings_layout = QVBoxLayout()
 
-        # Game Version
+        # Game Version Radio Buttons (replacing old QComboBox)
+        game_version_group = QGroupBox("Game Version")
         game_version_layout = QHBoxLayout()
-        game_version_label = QLabel("Game Version:")
-        self.game_version_combo = QComboBox()
-        self.game_version_combo.currentIndexChanged.connect(self._on_game_version_selected)
-        game_version_layout.addWidget(game_version_label)
-        game_version_layout.addWidget(self.game_version_combo)
-        general_settings_layout.addLayout(game_version_layout)
+        self.sse_radio = QRadioButton("SkyrimSE/AE")
+        self.vr_radio = QRadioButton("SkyrimVR")
+        
+        self.sse_radio.toggled.connect(lambda: self._on_game_version_radio_toggled("SkyrimSE"))
+        self.vr_radio.toggled.connect(lambda: self._on_game_version_radio_toggled("SkyrimVR"))
+
+        game_version_layout.addWidget(self.sse_radio)
+        game_version_layout.addWidget(self.vr_radio)
+        game_version_layout.addStretch(1)
+        game_version_group.setLayout(game_version_layout)
+        general_settings_layout.addWidget(game_version_group)
 
         # Output Folder
         output_folder_layout = QHBoxLayout()
@@ -446,51 +456,51 @@ class SkyGenToolDialog(QDialog):
 
 
     def _populate_game_versions(self):
-        """Populates the game version combobox with only supported game types (SkyrimSE, SkyrimVR).
-        This version is robust against mobase.GameType not being available during early plugin load.
         """
-        supported_games_map = {}
-        
-        # Check if mobase.GameType is available. If not, use hardcoded strings directly.
-        if hasattr(mobase, 'GameType'):
-            self.wrapped_organizer.log(0, "SkyGen: DEBUG: mobase.GameType found. Using mobase enum values.")
-            supported_games_map[mobase.GameType.SSE] = "SkyrimSE"
-            supported_games_map[mobase.GameType.SkyrimVR] = "SkyrimVR"
-        else:
-            self.wrapped_organizer.log(3, "SkyGen: WARNING: mobase.GameType not found. Using hardcoded game versions as fallback.")
-            # If GameType enum is not available, default to common names with arbitrary keys
-            supported_games_map[0] = "SkyrimSE" # Using 0 and 1 as arbitrary keys for the map
-            supported_games_map[1] = "SkyrimVR"
-            
+        Detects the current game and sets the appropriate radio button.
+        Defaults to SkyrimSE/AE if detection fails or is not supported.
+        """
         current_game_type = None
-        # Correctly get the current game type from the organizer
+        current_game_name = "SkyrimSE" # Default to SkyrimSE if detection fails
+
         try:
-            if self.wrapped_organizer.currentGame() is not None:
+            if hasattr(self.wrapped_organizer, 'currentGame') and self.wrapped_organizer.currentGame() is not None:
                 current_game_type = self.wrapped_organizer.currentGame().type()
+                if hasattr(mobase, 'GameType'):
+                    if current_game_type == mobase.GameType.SSE:
+                        current_game_name = "SkyrimSE"
+                    elif current_game_type == mobase.GameType.SkyrimVR:
+                        current_game_name = "SkyrimVR"
+                    else:
+                        self.wrapped_organizer.log(2, f"SkyGen: INFO: Current game type {current_game_type} not explicitly supported by SkyGen. Defaulting to SkyrimSE/AE.")
+                        current_game_name = "SkyrimSE" # Fallback for unsupported MO2 GameType
+                else:
+                    self.wrapped_organizer.log(3, "SkyGen: WARNING: mobase.GameType not found. Assuming current game is SkyrimSE/AE for initial UI setup.")
+                    current_game_name = "SkyrimSE" # Fallback if GameType enum is missing
         except Exception as e:
-            self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to no specific current game.")
+            self.wrapped_organizer.log(3, f"SkyGen: WARNING: Could not determine current game type from organizer: {e}. Defaulting to SkyrimSE/AE.")
+            current_game_name = "SkyrimSE" # Default on error
+
+        if current_game_name == "SkyrimSE":
+            self.sse_radio.setChecked(True)
+            self.selected_game_version = "SkyrimSE"
+        elif current_game_name == "SkyrimVR":
+            self.vr_radio.setChecked(True)
+            self.selected_game_version = "SkyrimVR"
+        else: # Should not happen with the default, but as a safeguard
+            self.sse_radio.setChecked(True)
+            self.selected_game_version = "SkyrimSE"
+
+        self.wrapped_organizer.log(0, f"SkyGen: Initial game version set to: {self.selected_game_version} (via radio buttons).")
 
 
-        self.game_version_combo.clear()
-        
-        # Logic to add current game first, if it's supported and detectable
-        current_game_name = supported_games_map.get(current_game_type)
-        
-        if current_game_name:
-            self.game_version_combo.addItem(current_game_name)
-            self.selected_game_version = current_game_name
-            
-            # Add other supported games, excluding the one already added
-            other_game_names = [name for key, name in supported_games_map.items() if name != current_game_name]
-            self.game_version_combo.addItems(sorted(other_game_names))
-        else:
-            # If current game is not supported or could not be determined, just add all sorted supported games
-            sorted_names = sorted(supported_games_map.values())
-            self.game_version_combo.addItems(sorted_names)
-            if sorted_names:
-                self.selected_game_version = self.game_version_combo.currentText() # Set initial selection to first item
-        
-        self.wrapped_organizer.log(0, f"SkyGen: Populated game versions: {self.game_version_combo.currentText()}")
+    def _on_game_version_radio_toggled(self, version: str):
+        """Handles changes in the game version radio buttons."""
+        if (version == "SkyrimSE" and self.sse_radio.isChecked()) or \
+           (version == "SkyrimVR" and self.vr_radio.isChecked()):
+            self.selected_game_version = version
+            self.wrapped_organizer.log(0, f"SkyGen: Game version selected via radio: {self.selected_game_version}")
+            self._save_config()
 
 
     def _populate_categories(self):
@@ -635,12 +645,6 @@ class SkyGenToolDialog(QDialog):
         self._save_config() # Save setting when toggled
 
 
-    def _on_game_version_selected(self):
-        self.selected_game_version = self.game_version_combo.currentText()
-        self.wrapped_organizer.log(0, f"SkyGen: Game version selected: {self.selected_game_version}")
-        self._save_config()
-
-
     def _on_target_mod_selected(self):
         self.selected_target_mod_name = self.target_mod_combo.currentText()
         self.wrapped_organizer.log(0, f"SkyGen: Target mod selected: {self.selected_target_mod_name}")
@@ -695,10 +699,17 @@ class SkyGenToolDialog(QDialog):
                 self._on_output_type_toggled() # Trigger visibility update
                 
                 # Apply general settings
-                self.game_version_combo.setCurrentIndex(
-                    self.game_version_combo.findText(config.get("game_version", self.game_version_combo.currentText()))
-                )
-                
+                # self.game_version_combo.setCurrentIndex( # Removed as per fix
+                #     self.game_version_combo.findText(config.get("game_version", self.game_version_combo.currentText()))
+                # )
+                loaded_game_version = config.get("game_version", "SkyrimSE")
+                if loaded_game_version == "SkyrimSE":
+                    self.sse_radio.setChecked(True)
+                elif loaded_game_version == "SkyrimVR":
+                    self.vr_radio.setChecked(True)
+                self.selected_game_version = loaded_game_version # Ensure internal state is set
+
+
                 self.output_folder_lineEdit.setText(config.get("output_folder_path", str(Path(self.wrapped_organizer.basePath()) / "overwrite")))
                 self.output_folder_path = self.output_folder_lineEdit.text()
 
@@ -739,7 +750,7 @@ class SkyGenToolDialog(QDialog):
         config_path = self._get_config_path()
         config_data = {
             "output_type": self.selected_output_type,
-            "game_version": self.game_version_combo.currentText(),
+            "game_version": self.selected_game_version, # MODIFIED: Use selected_game_version
             "output_folder_path": self.output_folder_lineEdit.text(),
             "target_mod_name": self.target_mod_combo.currentText(),
             "source_mod_name": self.source_mod_combo.currentText(),
@@ -880,8 +891,8 @@ class SkyGenToolDialog(QDialog):
             self.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot proceed with YAML generation.")
             return
         
-        all_exported_target_bases = target_exported_json.get("baseObjects", [])
-        all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in all_exported_target_bases if "FormID" in obj}
+        # This will be used in generate_and_write_skypatcher_yaml to find target FormIDs for broad category swap
+        self.all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in target_exported_json.get("baseObjects", []) if "FormID" in obj}
 
 
         if self.generate_all:
@@ -950,7 +961,8 @@ class SkyGenToolDialog(QDialog):
                             target_mod_name=target_mod_display_name, # This is display name, will be converted internally in generate_and_write_skypatcher_yaml
                             output_folder_path=output_folder_path,
                             record_type=category,
-                            broad_category_swap_enabled=broad_category_swap_enabled
+                            broad_category_swap_enabled=broad_category_swap_enabled,
+                            search_keywords=keywords # Pass as list
                         )
                         if generated:
                             successful_generations += 1
@@ -1024,7 +1036,8 @@ class SkyGenToolDialog(QDialog):
                 target_mod_name=target_mod_display_name,
                 output_folder_path=output_folder_path,
                 record_type=category,
-                broad_category_swap_enabled=broad_category_swap_enabled
+                broad_category_swap_enabled=broad_category_swap_enabled,
+                search_keywords=keywords # Pass as list
             )
 
     # Helper method to get internal mod name, moved from __init__.py display()

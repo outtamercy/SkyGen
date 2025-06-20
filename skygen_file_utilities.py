@@ -2,7 +2,7 @@ from pathlib import Path
 import mobase
 import os
 import time
-import subprocess
+# Removed subprocess import
 import json
 import yaml
 import configparser
@@ -83,51 +83,29 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
 def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Path, str] | None:
     """
     Determines the xEdit executable path and its MO2 registered name.
-    Prioritizes official xEdit names used by MO2.
+    Prioritizes official xEdit names used by MO2, with case-insensitive matching.
     """
-    xedit_names = ["SSEEdit", "TES5Edit", "FO4Edit", "FNVEdit", "OblivionEdit", "xEdit"]
+    # Convert all target names to lowercase for robust comparison
+    xedit_names_lower = {"sseedit", "tes5edit", "fo4edit", "fnvedit", "oblivionedit", "xedit"}
     executables = wrapped_organizer.getExecutables() # Dictionary of MO2 executables
 
     # Prioritize executables whose display name or binary matches common xEdit names
     for exe_name, exe_info in executables.items():
         exe_path = Path(exe_info.binary())
-        # Check if the display name or the binary name (without extension) matches an xEdit name
-        if exe_info.displayName() in xedit_names or exe_path.stem in xedit_names:
-            wrapped_organizer.log(1, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}'")
+        
+        # Log the display name and binary stem for debugging purposes
+        debug_logger = wrapped_organizer.log
+        debug_logger(0, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
+
+        # Check if the display name (lowercased) or the binary name stem (lowercased) matches an xEdit name
+        if exe_info.displayName().lower() in xedit_names_lower or exe_path.stem.lower() in xedit_names_lower:
+            debug_logger(1, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
             return exe_path, exe_name # Return path and the internal MO2 name
 
     wrapped_organizer.log(3, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings.")
     if dialog_instance:
         dialog_instance.showWarning("xEdit Not Found", "Could not automatically detect xEdit executable in Mod Organizer 2's registered executables. Please ensure it's added and named 'SSEEdit', 'TES5Edit', 'xEdit', etc.")
     return None
-
-
-def run_xedit_export(
-    organizer: Any, # mobase.IOrganizer
-    dialog_instance: Any, # The main UI dialog
-    xedit_exe_path: Path,
-    xedit_mo2_name: str, # The MO2 registered name for xEdit
-    xedit_script_filename: str, # Name of the Pascal script file
-    game_mode_flag: str, # e.g., "SE", "VR"
-    script_options: dict, # Dictionary of options for the Pascal script
-    log_callback: Any # Function to call for logging
-) -> Optional[Path]:
-    """
-    DEPRECATED: Use safe_launch_xedit instead.
-    This function is no longer actively maintained.
-    """
-    log_callback(3, "SkyGen: WARNING: run_xedit_export is deprecated. Using safe_launch_xedit.")
-    # Fallback to safe_launch_xedit for compatibility
-    return safe_launch_xedit(
-        organizer,
-        dialog_instance,
-        xedit_exe_path,
-        xedit_mo2_name,
-        xedit_script_filename,
-        game_mode_flag,
-        script_options,
-        log_callback
-    )
 
 
 def write_pas_script_to_xedit() -> str:
@@ -161,7 +139,7 @@ begin
   iniPath := ScriptsPath + ExtractFileNameWithoutExt(ScriptName) + '.ini';
   
   if not FileExists(iniPath) then begin
-    AddMessage('[SkyGen] ERROR: Failed to load INI - INI file not found: ' + iniPath);
+    // AddMessage('[SkyGen] ERROR: Failed to load INI - INI file not found: ' + iniPath); // Removed
     Result := 1; 
     Exit;
   end;
@@ -171,14 +149,14 @@ begin
   except
     on E: Exception do
     begin
-      AddMessage(Format('[SkyGen] ERROR: Failed to create INI object for %s: %s', [iniPath, E.Message]));
+      // AddMessage(Format('[SkyGen] ERROR: Failed to create INI object for %s: %s', [iniPath, E.Message])); // Removed
       Result := 1;
       Exit;
     end;
   end;
 
   if not ini.SectionExists('SkyGenOptions') then begin
-    AddMessage('[SkyGen] ERROR: Failed to load INI - missing [SkyGenOptions] section in ' + iniPath);
+    // AddMessage('[SkyGen] ERROR: Failed to load INI - missing [SkyGenOptions] section in ' + iniPath); // Removed
     Result := 1;
     Exit;
   end;
@@ -192,12 +170,12 @@ begin
   GlobalBroadCategorySwap := (LowerCase(BroadCategorySwapStr) = 'true');
 
   if (GlobalTargetPlugin = '') or (GlobalOutputFilePath = '') then begin
-    AddMessage('[SkyGen] ERROR: Failed to load INI - missing required values (TargetPlugin or OutputFilePath) in ' + iniPath);
+    // AddMessage('[SkyGen] ERROR: Failed to load INI - missing required values (TargetPlugin or OutputFilePath) in ' + iniPath); // Removed
     Result := 1;
     Exit;
   end;
-  AddMessage(Format('[SkyGen] INFO: Successfully loaded INI options from: %s', [iniPath]));
-  AddMessage(Format('[SkyGen] INFO: TargetPlugin=%s, OutputFilePath=%s, Category=%s, BroadSwap=%s, Keywords=%s', [GlobalTargetPlugin, GlobalOutputFilePath, BroadCategorySwapStr, GlobalKeywords]));
+  // AddMessage(Format('[SkyGen] INFO: Successfully loaded INI options from: %s', [iniPath])); // Removed
+  // AddMessage(Format('[SkyGen] INFO: TargetPlugin=%s, OutputFilePath=%s, Category=%s, BroadSwap=%s, Keywords=%s', [GlobalTargetPlugin, GlobalOutputFilePath, BroadCategorySwapStr, GlobalKeywords])); // Removed
 end;
 
 
@@ -207,7 +185,7 @@ begin
   ReadSkyGenINI; 
   if Result <> 0 then 
   begin
-    AddMessage('[SkyGen] CRITICAL: INI loading failed during Initialize. Aborting xEdit script.');
+    // AddMessage('[SkyGen] CRITICAL: INI loading failed during Initialize. Aborting xEdit script.'); // Removed
     Exit; 
   end;
 end;
@@ -439,7 +417,7 @@ begin
 
   if GlobalOutputFilePath = '' then
   begin
-    AddMessage('[SkyGen] ERROR: GlobalOutputFilePath is empty after INI load. Aborting.');
+    // AddMessage('[SkyGen] ERROR: GlobalOutputFilePath is empty after INI load. Aborting.'); // Removed
     Result := 1;
     Exit;
   end;
@@ -453,11 +431,11 @@ begin
 
   try
     MainOutputObject.SaveToFile(GlobalOutputFilePath);
-    AddMessage(Format('[SkyGen] Successfully exported data to: %s', [GlobalOutputFilePath]));
+    // AddMessage(Format('[SkyGen] Successfully exported data to: %s', [GlobalOutputFilePath])); // Removed
   except
     on E: Exception do
     begin
-      AddMessage(Format('[SkyGen] ERROR: Failed to save JSON to file %s: %s', [GlobalOutputFilePath, E.Message]));
+      // AddMessage(Format('[SkyGen] ERROR: Failed to save JSON to file %s: %s', [GlobalOutputFilePath, E.Message])); // Removed
       Result := 1;
     end;
   end;
@@ -555,7 +533,7 @@ def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Pat
         dialog.showError("xEdit Timeout", "xEdit process timed out after 10 minutes. It may be stuck or processing a very large load order.")
         debug_logger(MO2_LOG_ERROR, "SkyGen: ERROR: xEdit process timed out.")
         # Ensure cleanup even on timeout
-        clean_temp_files(temp_script_path, temp_ini_path, debug_logger, output_json_path)
+        clean_temp_files(temp_script_path, temp_ini_path, debug_logger, output_json_path) # Added output_json_path
         return None
 
     # Get final output
@@ -598,12 +576,15 @@ def generate_and_write_skypatcher_yaml(
     output_folder_path: Path,
     record_type: str,
     broad_category_swap_enabled: bool,
-    search_keywords: str = "", # Comma-separated keywords string
+    search_keywords: Optional[list[str]] = None, # Changed from str to list[str], made optional
     dialog_instance: Any = None # Optional dialog instance for showing errors
 ) -> bool:
     """
     Generates SkyPatcher YAML configuration files from xEdit-exported JSON data.
     """
+    if search_keywords is None:
+        search_keywords = [] # Initialize as empty list if None
+
     log_callback = wrapped_organizer.log # Get log function from wrapped_organizer
     log_callback(1, f"SkyGen: Starting YAML generation for category '{record_type}' with target '{target_mod_name}'.")
 
@@ -674,8 +655,8 @@ def generate_and_write_skypatcher_yaml(
 
             # Check for keyword match if keywords are specified and broad swap is NOT enabled
             if search_keywords and not broad_category_swap_enabled:
-                keywords_list_for_check = [k.strip().lower() for k in search_keywords.split(',') if k.strip()]
-                if not any(kw in editor_id.lower() for kw in keywords_list_for_check):
+                # search_keywords is already a list of strings
+                if not any(kw.lower() in editor_id.lower() for kw in search_keywords):
                     log_callback(0, f"SkyGen: DEBUG: Skipping {editor_id} due to keyword mismatch (not broad swap).")
                     continue # Skip if no keyword match
 
