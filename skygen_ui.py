@@ -135,6 +135,14 @@ class OrganizerWrapper:
             self.log(MO2_LOG_ERROR, f"Error in pluginDataPath: {e}")
             return ""
 
+    def profilePath(self):
+        """Delegates to mobase.IOrganizer.profilePath()."""
+        try:
+            return self._organizer.profilePath()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in profilePath: {e}")
+            return ""
+
     def gameInfo(self):
         """Delegates to mobase.IOrganizer.gameInfo()."""
         try:
@@ -189,8 +197,12 @@ except ImportError:
             pass
 
     class QMessageBox:
-        def __init__(self, *args, **kwargs):
-            pass
+        @staticmethod
+        def critical(parent, title, message): print(f"CRITICAL: {title}: {message}")
+        @staticmethod
+        def warning(parent, title, message): print(f"WARNING: {title}: {message}")
+        @staticmethod
+        def information(parent, title, message): print(f"INFORMATION: {title}: {message}")
 
     class QLabel:
         def __init__(self, *args, **kwargs):
