@@ -94,17 +94,31 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
         exe_path = Path(exe_info.binary())
         
         # Log the display name and binary stem for debugging purposes
-        debug_logger = wrapped_organizer.log
-        debug_logger(0, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
+        # debug_logger = wrapped_organizer.log
+        # debug_logger(0, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
 
         # Check if the display name (lowercased) or the binary name stem (lowercased) matches an xEdit name
         if exe_info.displayName().lower() in xedit_names_lower or exe_path.stem.lower() in xedit_names_lower:
-            debug_logger(1, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
+            wrapped_organizer.log(1, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
             return exe_path, exe_name # Return path and the internal MO2 name
 
-    wrapped_organizer.log(3, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings.")
+    # --- ADD THE FALLBACK LOGIC HERE (ChatGPT's suggestion) ---
+    wrapped_organizer.log(1, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
+    
+    # Calculate potential fallback path relative to MO2's base directory (common for Wabbajack)
+    # organizer.profilePath() is usually <MO2_Base>/profiles/<ProfileName>
+    # .parent.parent moves up two levels to <MO2_Base>
+    mo2_base_path = Path(wrapped_organizer.profilePath()).parent.parent
+    fallback_path = mo2_base_path / "tools" / "SSEEdit" / "SSEEdit.exe"
+
+    if fallback_path.is_file():
+        wrapped_organizer.log(1, f"SkyGen: Found xEdit via Wabbajack-style fallback: {fallback_path}")
+        return fallback_path, "SSEEdit" # Use a generic MO2 name for this fallback detection
+    # --- END FALLBACK LOGIC ---
+
+    wrapped_organizer.log(3, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings or via Wabbajack fallback.")
     if dialog_instance:
-        dialog_instance.showWarning("xEdit Not Found", "Could not automatically detect xEdit executable in Mod Organizer 2's registered executables. Please ensure it's added and named 'SSEEdit', 'TES5Edit', 'xEdit', etc.")
+        dialog_instance.showWarning("xEdit Not Found", "Could not automatically detect xEdit executable. Please ensure it's added to MO2's executables (named 'SSEEdit', 'TES5Edit', etc.) or located in a standard Wabbajack 'tools' directory.")
     return None
 
 

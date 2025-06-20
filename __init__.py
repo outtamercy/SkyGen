@@ -139,6 +139,10 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         """Returns the name of the tool."""
         return "SkyGen"
 
+    def displayName(self) -> str: # THIS IS THE MISSING METHOD!
+        """Returns the display name for the plugin in MO2's UI."""
+        return "SkyGen" # It can simply return the same as name()
+
     def author(self) -> str:
         """Returns the author of the tool."""
         return "ZanderLex"
