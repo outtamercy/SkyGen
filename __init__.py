@@ -139,9 +139,15 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         """Returns the name of the tool."""
         return "SkyGen"
 
-    def displayName(self) -> str: # THIS IS THE MISSING METHOD!
+    def displayName(self) -> str:
         """Returns the display name for the plugin in MO2's UI."""
         return "SkyGen" # It can simply return the same as name()
+
+    def icon(self) -> QIcon:
+        """Returns the icon for the plugin."""
+        # You can replace 'QIcon()' with a path to an icon file if you have one,
+        # but a default QIcon should prevent the crash.
+        return QIcon()
 
     def author(self) -> str:
         """Returns the author of the tool."""
