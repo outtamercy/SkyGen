@@ -11,6 +11,16 @@ import os
 import json
 from typing import Any, Optional, Union
 
+# Import necessary functions from skygen_file_utilities
+from .skygen_file_utilities import (
+    load_json_data,
+    get_xedit_exe_path,
+    safe_launch_xedit,
+    generate_and_write_skypatcher_yaml,
+    generate_bos_ini_files,
+)
+
+
 MO2_LOG_CRITICAL = 5
 MO2_LOG_ERROR = 4
 MO2_LOG_WARNING = 3
@@ -49,7 +59,6 @@ class OrganizerWrapper:
         
         # Log to MO2's internal log
         if self._organizer and hasattr(self._organizer, 'log'):
-            # MODIFIED: Corrected argument order for MO2's log method
             self._organizer.log(mo2_log_level, message)
         
         # Log to custom debug file
@@ -454,7 +463,7 @@ class SkyGenToolDialog(QDialog):
             supported_games_map[1] = "SkyrimVR"
             
         current_game_type = None
-        # MODIFIED: Correctly get the current game type from the organizer
+        # Correctly get the current game type from the organizer
         try:
             if self.wrapped_organizer.currentGame() is not None:
                 current_game_type = self.wrapped_organizer.currentGame().type()
@@ -666,7 +675,6 @@ class SkyGenToolDialog(QDialog):
 
     def _get_config_path(self) -> Path:
         """Returns the path to the plugin's config.json file."""
-        # MODIFIED: Changed back to pluginDataPath() as it's the standard for plugin-specific data
         return Path(self.wrapped_organizer.pluginDataPath()) / "SkyGen" / "config.json"
 
 
@@ -698,6 +706,7 @@ class SkyGenToolDialog(QDialog):
                 self.target_mod_combo.setCurrentIndex(
                     self.target_mod_combo.findText(config.get("target_mod_name", ""))
                 )
+                # MODIFIED: Changed find() to findText() for source_mod_combo
                 self.source_mod_combo.setCurrentIndex(
                     self.source_mod_combo.findText(config.get("source_mod_name", ""))
                 )
@@ -767,4 +776,265 @@ class SkyGenToolDialog(QDialog):
         """Displays an information message box."""
         QMessageBox.information(self, title, message)
         self.wrapped_organizer.log(2, f"SkyGen: UI Info: {title} - {message}")
+
+    def _generate_skypatcher_yaml_internal(self):
+        """
+        Internal method to handle the SkyPatcher YAML generation logic.
+        This method is called by the display() method in __init__.py.
+        """
+        self.wrapped_organizer.log(1, "SkyGen: Starting SkyPatcher YAML generation (internal).")
+
+        target_mod_display_name = self.selected_target_mod_name
+        source_mod_display_name = self.selected_source_mod_name
+        category = self.selected_category
+        keywords_str = self.keywords_lineEdit.text().strip()
+        keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
+        broad_category_swap_enabled = self.broad_category_swap_checkbox.isChecked()
+        output_folder_path = Path(self.output_folder_path)
+
+        if not target_mod_display_name:
+            self.showError("Input Error", "Please select a Target Mod.")
+            self.wrapped_organizer.log(3, "SkyGen: Target Mod not selected. Aborting YAML generation.")
+            return
+
+        if not category:
+            self.showError("Input Error", "Please select or enter a Category (Record Type).")
+            self.wrapped_organizer.log(3, "SkyGen: Category not selected. Aborting YAML generation.")
+            return
+
+        # Determine game mode flag for xEdit (e.g., -SE, -VR)
+        game_mode_flag = ""
+        if self.selected_game_version == "SkyrimSE":
+            game_mode_flag = "SE"
+        elif self.selected_game_version == "SkyrimVR":
+            game_mode_flag = "VR"
+        else:
+            self.showError("Game Version Error", "Could not determine game version. Please select SkyrimSE/AE or SkyrimVR.")
+            self.wrapped_organizer.log(4, "SkyGen: ERROR: Invalid or unselected game version.")
+            return
+
+        # Check if xEdit path and name are available
+        if not self.determined_xedit_exe_path or not self.determined_xedit_executable_name:
+            self.showError("xEdit Not Configured", "xEdit executable not found or configured. Please add it to MO2's executables and restart SkyGen.")
+            self.wrapped_organizer.log(4, "SkyGen: CRITICAL: xEdit not found. Aborting generation.")
+            return
+
+        xedit_script_filename = "ExportPluginData.pas" # Pascal script name
+        xedit_ini_filename = "ExportPluginData.ini" # INI file name for Pascal script
+
+        # Ensure output directory exists
+        if not output_folder_path.is_dir():
+            try:
+                output_folder_path.mkdir(parents=True, exist_ok=True)
+                self.wrapped_organizer.log(1, f"SkyGen: Created output directory: {output_folder_path}")
+            except Exception as e:
+                self.showError("Directory Creation Error", f"Failed to create output directory: {output_folder_path}\n{e}")
+                self.wrapped_organizer.log(4, f"SkyGen: ERROR: Failed to create output directory {output_folder_path}: {e}")
+                return
+
+        # Get plugin name for the target mod
+        target_plugin_filename = self._get_plugin_name_from_mod_name(target_mod_display_name, self._get_internal_mod_name_from_display_name(target_mod_display_name))
+        if not target_plugin_filename:
+            self.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_display_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
+            self.wrapped_organizer.log(3, f"SkyGen: Target mod '{target_mod_display_name}' has no primary plugin. Aborting YAML generation.")
+            return
+
+        # Export ALL data from the Target Mod first (only once)
+        self.wrapped_organizer.log(1, f"SkyGen: Exporting all data from Target Mod '{target_mod_display_name}'...")
+        
+        target_export_script_options = {
+            "TargetPlugin": target_plugin_filename,
+            "TargetCategory": "", # Empty string to export all categories
+            "Keywords": "",
+            "BroadCategorySwap": "false"
+        }
+
+        xedit_output_path_target_all = safe_launch_xedit(
+            self.wrapped_organizer._organizer, # Pass original MO2 organizer
+            self, # Pass dialog instance
+            self.determined_xedit_exe_path,
+            self.determined_xedit_executable_name,
+            xedit_script_filename,
+            game_mode_flag,
+            target_export_script_options,
+            self.wrapped_organizer.log
+        )
+        
+        if not xedit_output_path_target_all:
+            self.wrapped_organizer.log(3, "SkyGen: ERROR: Failed to export target mod data. Aborting YAML generation.")
+            self.showError("xEdit Export Failed", "Failed to export data from the Target Mod. Check xEdit logs for details.")
+            return
+
+        target_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_target_all, "Target Mod xEdit Export", self)
+        
+        # Clean up the output JSON from target export after loading
+        try:
+            xedit_output_path_target_all.unlink()
+            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Cleaned up target export JSON: {xedit_output_path_target_all}")
+        except Exception as e:
+            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Failed to delete target export JSON '{xedit_output_path_target_all}': {e}")
+
+
+        if not target_exported_json or "baseObjects" not in target_exported_json:
+            self.wrapped_organizer.log(3, "SkyGen: ERROR: Target mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
+            self.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot proceed with YAML generation.")
+            return
+        
+        all_exported_target_bases = target_exported_json.get("baseObjects", [])
+        all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in all_exported_target_bases if "FormID" in obj}
+
+
+        if self.generate_all:
+            self.wrapped_organizer.log(1, "SkyGen: 'Generate All' selected. Processing all compatible source mods.")
+            all_mods = self.wrapped_organizer._organizer.modList().allMods() # Access original organizer
+            successful_generations = 0
+            
+            # Filter out target mod and game master files from source mods for 'all' generation
+            source_mods_to_process = []
+            for mod_name_internal in all_mods:
+                if self.wrapped_organizer._organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE:
+                    mod_display_name = self.wrapped_organizer._organizer.modList().displayName(mod_name_internal)
+                    if mod_display_name == target_mod_display_name: # Don't process target mod as source
+                        continue
+                    
+                    # Exclude master files (.esm, .esl) as sources unless specifically requested
+                    source_plugin_candidate = self._get_plugin_name_from_mod_name(mod_display_name, mod_name_internal)
+                    if source_plugin_candidate and not (source_plugin_candidate.lower().endswith(".esm") or source_plugin_candidate.lower().endswith(".esl")):
+                        source_mods_to_process.append((mod_display_name, mod_name_internal, source_plugin_candidate))
+                    else:
+                        self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Skipping mod '{mod_display_name}' (internal: {mod_name_internal}) as it's a master file or has no main plugin.")
+
+            if not source_mods_to_process:
+                self.showWarning("No Source Mods", "No suitable source mods found for 'Generate All'. Skipping.")
+                self.wrapped_organizer.log(2, "SkyGen: No suitable source mods found for 'Generate All'.")
+                return
+
+            self.showInformation("Starting Batch Generation", f"Generating YAMLs for compatible source mods against target mod '{target_mod_display_name}' for category '{category}'. This may take some time...")
+
+            for current_source_mod_display_name, current_source_mod_internal_name, source_mod_plugin_filename in source_mods_to_process:
+                self.wrapped_organizer.log(1, f"SkyGen: Processing source mod: '{current_source_mod_display_name}' ({source_mod_plugin_filename})...")
+                
+                source_export_script_options = {
+                    "TargetPlugin": source_mod_plugin_filename, # This is the plugin we're extracting data FROM
+                    "TargetCategory": category,
+                    "Keywords": ','.join(keywords),
+                    "BroadCategorySwap": str(broad_category_swap_enabled).lower()
+                }
+                
+                # Run xEdit export for the current source mod and specific category
+                xedit_output_path_source = safe_launch_xedit(
+                    self.wrapped_organizer._organizer, # Pass original MO2 organizer
+                    self, # Pass dialog instance
+                    self.determined_xedit_exe_path,
+                    self.determined_xedit_executable_name,
+                    xedit_script_filename,
+                    game_mode_flag,
+                    source_export_script_options,
+                    self.wrapped_organizer.log
+                )
+                
+                if xedit_output_path_source:
+                    source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {current_source_mod_display_name}", dialog_instance=self)
+                    
+                    # Clean up the output JSON from source export after loading
+                    try:
+                        xedit_output_path_source.unlink()
+                        self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Cleaned up source export JSON: {xedit_output_path_source}")
+                    except Exception as e:
+                        self.wrapped_organizer.log(2, f"SkyGen: WARNING: Failed to delete source export JSON '{xedit_output_path_source}': {e}")
+                    
+                    if source_exported_json and "baseObjects" in source_exported_json:
+                        generated = generate_and_write_skypatcher_yaml(
+                            wrapped_organizer=self.wrapped_organizer,
+                            json_data=source_exported_json, # Pass the entire json_data with 'baseObjects'
+                            target_mod_name=target_mod_display_name, # This is display name, will be converted internally in generate_and_write_skypatcher_yaml
+                            output_folder_path=output_folder_path,
+                            record_type=category,
+                            broad_category_swap_enabled=broad_category_swap_enabled
+                        )
+                        if generated:
+                            successful_generations += 1
+                    else:
+                        self.wrapped_organizer.log(2, f"SkyGen: WARNING: xEdit export JSON for '{current_source_mod_display_name}' is empty or malformed. Skipping YAML generation.")
+                else:
+                    self.wrapped_organizer.log(3, f"SkyGen: ERROR: xEdit export failed for source mod '{current_source_mod_display_name}'. Skipping YAML generation.")
+
+            self.showInformation("Batch Generation Complete", f"Successfully generated {successful_generations} YAML file(s).")
+            self.wrapped_organizer.log(1, f"SkyGen: Batch YAML generation complete. {successful_generations} files generated.")
+
+        else: # Single YAML Generation
+            if not source_mod_display_name:
+                self.showError("Input Error", "Please select a Source Mod for single YAML generation.")
+                self.wrapped_organizer.log(3, "SkyGen: Source Mod not selected for single YAML generation.")
+                return
+
+            self.wrapped_organizer.log(1, f"SkyGen: Generating single YAML for '{source_mod_display_name}' targeting '{target_mod_display_name}' for category '{category}'...")
+
+            # Get plugin name for the source mod
+            source_plugin_filename = self._get_plugin_name_from_mod_name(source_mod_display_name, self._get_internal_mod_name_from_display_name(source_mod_display_name))
+            if not source_plugin_filename:
+                self.showError("Source Mod Error", f"Could not determine plugin file for source mod '{source_mod_display_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
+                self.wrapped_organizer.log(3, f"SkyGen: Source mod '{source_mod_display_name}' has no primary plugin. Aborting YAML generation.")
+                return
+
+            # 2. Export data from the Source Mod for the specific category
+            self.wrapped_organizer.log(1, f"SkyGen: Exporting data from Source Mod: {source_mod_display_name} for category {category}...")
+            
+            source_export_script_options = {
+                "TargetPlugin": source_plugin_filename, # This is the plugin we're extracting data FROM
+                "TargetCategory": category,
+                "Keywords": ','.join(keywords),
+                "BroadCategorySwap": str(broad_category_swap_enabled).lower()
+            }
+
+            xedit_output_path_source = safe_launch_xedit(
+                self.wrapped_organizer._organizer, # Pass original MO2 organizer
+                self, # Pass dialog instance
+                self.determined_xedit_exe_path,
+                self.determined_xedit_executable_name,
+                xedit_script_filename,
+                game_mode_flag,
+                source_export_script_options,
+                self.wrapped_organizer.log
+            )
+            
+            if not xedit_output_path_source:
+                self.wrapped_organizer.log(3, "SkyGen: ERROR: Failed to export source mod data. Aborting YAML generation.")
+                self.showError("xEdit Export Failed", "Failed to export data from the Source Mod. Check xEdit logs for details.")
+                return
+
+            source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self)
+            
+            # Clean up the output JSON from source export after loading
+            try:
+                xedit_output_path_source.unlink()
+                self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Cleaned up source export JSON: {xedit_output_path_source}")
+            except Exception as e:
+                self.wrapped_organizer.log(2, f"SkyGen: WARNING: Failed to delete source export JSON '{xedit_output_path_source}': {e}")
+            
+            if not source_exported_json or "baseObjects" not in source_exported_json:
+                self.wrapped_organizer.log(3, "SkyGen: ERROR: Source mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
+                self.showError("JSON Parse Error", "Source mod xEdit export JSON is empty or malformed. Cannot generate YAML.")
+                return
+
+            # 3. Generate and write the YAML
+            generate_and_write_skypatcher_yaml(
+                wrapped_organizer=self.wrapped_organizer,
+                json_data=source_exported_json, # Pass the entire json_data with 'baseObjects'
+                target_mod_name=target_mod_display_name,
+                output_folder_path=output_folder_path,
+                record_type=category,
+                broad_category_swap_enabled=broad_category_swap_enabled
+            )
+
+    # Helper method to get internal mod name, moved from __init__.py display()
+    def _get_internal_mod_name_from_display_name(self, display_name: str) -> Optional[str]:
+        """
+        Retrieves the internal (folder) name of a mod from its display name.
+        """
+        mod_list = self.wrapped_organizer.modList()
+        for mod_internal_name in mod_list.allMods():
+            if mod_list.displayName(mod_internal_name) == display_name:
+                return mod_internal_name
+        return None
 
