@@ -273,13 +273,13 @@ def detect_root_mode(wrapped_organizer: Any) -> bool:
 def write_pas_script_to_xedit(script_full_path: Path, wrapped_organizer: Any):
     """
     Writes the fixed Pascal script content to the specified full path (xEdit's script directory).
-    The content is now hardcoded in this function, with m_Common dependency removed.
+    The content is now hardcoded in this function, with m_Common and m_Process dependency removed.
     """
     script_content = """
 unit ExportPluginData;
 
 uses
-  SysUtils, Classes, Dialogs, m_Process, m_JSON; // m_Common removed
+  SysUtils, Classes, Dialogs, m_JSON; // m_Common and m_Process removed
 
 var
   JsonOutput: TJSONArray; // Changed to TJSONArray to hold a list of objects
