@@ -54,6 +54,9 @@ except ImportError:
 # Define a constant for max poll time
 MAX_POLL_TIME = 60 # Maximum seconds to wait for xEdit export to complete (increased from 30)
 
+# Import MO2_LOG_* constants from skygen_ui
+from .skygen_ui import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_TRACE
+
 
 # --- Utility Functions (Global helpers) ---
 
