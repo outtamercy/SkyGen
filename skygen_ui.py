@@ -304,7 +304,7 @@ class SkyGenToolDialog(QDialog):
         self._setup_ui()
         self._populate_game_versions()
         self._populate_categories()
-        # REMOVED: self._populate_mods()
+        # self._populate_mods() # REMOVED from __init__
         self._load_config() # Load saved settings
 
 

@@ -190,7 +190,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.output_folder_lineEdit.setText(str(default_output_path))
             self.dialog.output_folder_path = str(default_output_path)
 
-        if self.dialog.exec() == QDialog.Accepted: # Corrected from QMessageBox.StandardButton.Accepted
+        if self.dialog.exec() == QDialog.DialogCode.Accepted: # Corrected to QDialog.DialogCode.Accepted
             self.wrapped_organizer.log(1, "SkyGen: Dialog accepted. Starting generation process.")
             
             output_type = self.dialog.selected_output_type
