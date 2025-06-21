@@ -1,0 +1,9 @@
+# skygen_constants.py
+
+# Define MO2 log levels
+MO2_LOG_CRITICAL = 5
+MO2_LOG_ERROR = 4
+MO2_LOG_WARNING = 3
+MO2_LOG_INFO = 2
+MO2_LOG_DEBUG = 1
+MO2_LOG_TRACE = 0
