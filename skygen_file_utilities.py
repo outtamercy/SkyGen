@@ -134,7 +134,7 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
     wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
     
     # Calculate potential fallback path relative to MO2's base directory (common for Wabbajack)
-    # organizer.profilePath() is usually <MO2_Base>/profiles/<ProfileName>
+    # wrapped_organizer.profilePath() is usually <MO2_Base>/profiles/<ProfileName>
     # .parent.parent moves up two levels to <MO2_Base>
     mo2_base_path = Path(wrapped_organizer.profilePath()).parent.parent
     fallback_path = mo2_base_path / "tools" / "SSEEdit" / "SSEEdit.exe"
@@ -493,7 +493,7 @@ end.
 
 
 # MODIFIED: Replaced entire safe_launch_xedit function with the new, robust version
-def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Path, xedit_mo2_name: str, script_name: str, game_mode_flag: str, game_version: str, script_options: dict, debug_logger: Any) -> Optional[Path]:
+def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xedit_mo2_name: str, script_name: str, game_mode_flag: str, game_version: str, script_options: dict, debug_logger: Any) -> Optional[Path]:
     """
     Launches xEdit (SSEEdit/FO4Edit/etc.) via QProcess (MO2's full PyQt6 environment),
     writes the Pascal script and INI file, and captures xEdit's output.
@@ -509,8 +509,8 @@ def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Pat
     output_json_filename = f"SkyGen_xEdit_Export_{int(time.time())}.json"
     
     # Prefer MO2's overwrite, but fall back to a plugin-specific temp path if overwrite not writable
-    mo2_overwrite_path = Path(organizer.modsPath()) / "overwrite"
-    plugin_temp_path = Path(organizer.pluginDataPath()) / "SkyGen" / "temp"
+    mo2_overwrite_path = Path(wrapped_organizer.modsPath()) / "overwrite"
+    plugin_temp_path = Path(wrapped_organizer.pluginDataPath()) / "SkyGen" / "temp"
 
     output_folder = mo2_overwrite_path if mo2_overwrite_path.is_dir() and os.access(mo2_overwrite_path, os.W_OK) else plugin_temp_path
     output_folder.mkdir(parents=True, exist_ok=True) # Ensure temp folder exists
@@ -561,7 +561,8 @@ def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Pat
     process = QProcess(dialog) # Pass dialog as parent for QProcess
     # --- START REPLACEMENT FOR MO2 EXECUTABLE LOOKUP ---
     tool_entry = None
-    for exe in organizer.getExecutables().values():
+    # Now using wrapped_organizer to get executables
+    for exe in wrapped_organizer.getExecutables().values():
         if Path(exe.binary()).resolve() == xedit_path.resolve():
             tool_entry = exe
             break
@@ -633,7 +634,8 @@ def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Pat
                 debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old log file {export_log_path}: {e}. This might cause issues.")
 
         # Launch xEdit via MO2's built-in application launcher to ensure VFS is correctly applied
-        app_handle = organizer.startApplication(mo2_exec_name_to_use, xedit_args, str(cwd))
+        # Now calling wrapped_organizer.startApplication()
+        app_handle = wrapped_organizer.startApplication(mo2_exec_name_to_use, xedit_args, str(cwd))
 
         if app_handle == 0:
             dialog.showError("xEdit Launch Failed", f"Failed to launch '{mo2_exec_name_to_use}' via MO2. Please ensure xEdit is added to MO2's executables with the display name '{mo2_exec_name_to_use}' (e.g., 'SSEEdit' or 'TES5VREdit') and check MO2 logs for more details.")

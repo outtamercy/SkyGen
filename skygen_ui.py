@@ -595,7 +595,7 @@ class SkyGenToolDialog(QDialog):
         Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
         # Get the IMod object
-        mod_obj = self.wrapped_organizer._organizer.modList().getMod(mod_internal_name) 
+        mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) # Corrected: used wrapped_organizer
         if not mod_obj:
             self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
@@ -881,7 +881,7 @@ class SkyGenToolDialog(QDialog):
         }
 
         xedit_output_path_target_all = safe_launch_xedit(
-            self.wrapped_organizer._organizer, # organizer
+            self.wrapped_organizer, # organizer (CORRECTED to pass OrganizerWrapper)
             self, # dialog
             self.determined_xedit_exe_path, # xedit_path
             self.determined_xedit_executable_name, # xedit_mo2_name
@@ -918,14 +918,14 @@ class SkyGenToolDialog(QDialog):
 
         if self.generate_all:
             self.wrapped_organizer.log(1, "SkyGen: 'Generate All' selected. Processing all compatible source mods.")
-            all_mods = self.wrapped_organizer._organizer.modList().allMods() # Access original organizer
+            all_mods = self.wrapped_organizer.modList().allMods() # Corrected: used wrapped_organizer
             successful_generations = 0
             
             # Filter out target mod and game master files from source mods for 'all' generation
             source_mods_to_process = []
             for mod_name_internal in all_mods:
-                if self.wrapped_organizer._organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE:
-                    mod_display_name = self.wrapped_organizer._organizer.modList().displayName(mod_name_internal)
+                if self.wrapped_organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE: # Corrected: used wrapped_organizer
+                    mod_display_name = self.wrapped_organizer.modList().displayName(mod_name_internal) # Corrected: used wrapped_organizer
                     if mod_display_name == target_mod_display_name: # Don't process target mod as source
                         continue
                     
@@ -955,7 +955,7 @@ class SkyGenToolDialog(QDialog):
                 
                 # Run xEdit export for the current source mod and specific category
                 xedit_output_path_source = safe_launch_xedit(
-                    self.wrapped_organizer._organizer, # organizer
+                    self.wrapped_organizer, # organizer (CORRECTED to pass OrganizerWrapper)
                     self, # dialog
                     self.determined_xedit_exe_path,
                     self.determined_xedit_executable_name,
@@ -1022,7 +1022,7 @@ class SkyGenToolDialog(QDialog):
             }
 
             xedit_output_path_source = safe_launch_xedit(
-                self.wrapped_organizer._organizer, # organizer
+                self.wrapped_organizer, # organizer (CORRECTED to pass OrganizerWrapper)
                 self, # dialog
                 self.determined_xedit_exe_path,
                 self.determined_xedit_executable_name,
