@@ -429,8 +429,6 @@ class SkyGenToolDialog(QDialog):
         for mod_name in mod_list.allMods():
             if mod_list.state(mod_name) & mobase.ModState.ACTIVE:
                 display_name = mod_list.displayName(mod_name)
-                # We need the tool to handle plugin name detection now.
-                # Just add all active mods for display for now.
                 active_mods.append(display_name)
 
         active_mods.sort(key=str.lower)

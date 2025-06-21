@@ -150,10 +150,24 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         else:
             self.wrapped_organizer.log(1, "SkyGen: Dialog cancelled by user. No action taken.")
 
+    def __tr(self, str_: str) -> str:
+        """Translates a string using MO2's translation mechanism."""
+        return self.organizer.qtTr(str_, self.name())
+
+    def deinit(self):
+        """
+        Called by MO2 when the plugin is being unloaded.
+        Ensures the custom debug log file is properly closed.
+        """
+        if self.wrapped_organizer:
+            self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Plugin de-initializing. Closing debug log file.")
+            self.wrapped_organizer.close_log_file()
+        return True
+
     def _get_internal_mod_name_from_display_name(self, display_name: str) -> Optional[str]:
         """
         Retrieves the internal (folder) name of a mod from its display name.
-        This helper is now part of the tool, not the UI.
+        This helper is now part of the tool.
         """
         mod_list = self.wrapped_organizer.modList()
         for mod_internal_name in mod_list.allMods():
@@ -164,7 +178,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
     def _get_plugin_name_from_mod_name(self, mod_display_name: str, mod_internal_name: str) -> Optional[str]:
         """
         Attempts to find the primary plugin file (.esp, .esm, .esl) for a given mod.
-        This helper is now part of the tool, not the UI.
+        This helper is now part of the tool.
         """
         mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) 
         if not mod_obj:
@@ -209,7 +223,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
     ):
         """
         Encapsulates the SkyPatcher YAML generation logic.
-        Moved from skygen_ui.py to break circular dependency.
+        Moved from skygen_ui.py to centralize logic.
         """
         self.wrapped_organizer.log(1, "SkyGen: Starting SkyPatcher YAML generation (internal logic).")
 
@@ -225,11 +239,11 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.wrapped_organizer.log(3, "SkyGen: Category not selected. Aborting YAML generation.")
             return
 
-        game_mode_flag = ""
+        game_mode_arg_for_xedit = "" # Renamed variable for clarity in this context
         if game_version == "SkyrimSE":
-            game_mode_flag = "SE"
+            game_mode_arg_for_xedit = "SE"
         elif game_version == "SkyrimVR":
-            game_mode_flag = "VR"
+            game_mode_arg_for_xedit = "VR"
         else:
             self.dialog.showError("Game Version Error", "Could not determine game version. Please select SkyrimSE/AE or SkyrimVR.")
             self.wrapped_organizer.log(4, "SkyGen: ERROR: Invalid or unselected game version.")
@@ -257,13 +271,14 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.wrapped_organizer.log(3, f"SkyGen: Target mod '{target_mod_display_name}' has no primary plugin. Aborting YAML generation.")
             return
 
-        self.wrapped_organizer.log(1, f"SkyGen: Exporting all data from Target Mod '{target_mod_display_name}'...")
+        self.wrapped_organizer.log(1, f"SkyGen: Exporting all data from Target Mod '{target_mod_display_name}' for comparison...")
         
+        # Script options for exporting ALL data from the target mod for comparison
         target_export_script_options = {
             "TargetPlugin": target_plugin_filename,
-            "TargetCategory": "",
-            "Keywords": "",
-            "BroadCategorySwap": "false"
+            "TargetCategory": "", # Empty category means export all records from this plugin
+            "Keywords": "",       # No keyword filtering for the full export
+            "BroadCategorySwap": "false" # Not relevant for full export
         }
 
         # Use skygen_file_utilities.safe_launch_xedit
@@ -273,15 +288,14 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.determined_xedit_exe_path,
             self.dialog.determined_xedit_executable_name,
             xedit_script_filename,
-            game_mode_flag,
-            game_version,
+            game_version, # Pass game_version, not game_mode_flag here
             target_export_script_options,
             self.wrapped_organizer.log
         )
         
         if not xedit_output_path_target_all:
             self.wrapped_organizer.log(3, "SkyGen: ERROR: Failed to export target mod data. Aborting YAML generation.")
-            self.dialog.showError("xEdit Export Failed", "Failed to export data from the Target Mod. Check xEdit logs for details.")
+            self.dialog.showError("xEdit Export Failed", "Failed to export data from the Target Mod for comparison. Check xEdit logs for details.")
             return
 
         # Use skygen_file_utilities.load_json_data
@@ -298,7 +312,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot proceed with YAML generation.")
             return
         
-        # This is where the dialog instance is set to hold the exported data
+        # Crucial step: Populate the dialog's attribute that holds all target base objects for comparison
         self.dialog.all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in target_exported_json.get("baseObjects", []) if "FormID" in obj}
 
 
@@ -312,16 +326,17 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 if self.wrapped_organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE:
                     mod_display_name = self.wrapped_organizer.modList().displayName(mod_name_internal)
                     if mod_display_name == target_mod_display_name:
-                        continue
+                        continue # Skip the target mod itself
                     
                     source_plugin_candidate = self._get_plugin_name_from_mod_name(mod_display_name, mod_name_internal)
+                    # Only process if it has a plugin and is not an ESM (master file) or ESL (light master)
                     if source_plugin_candidate and not (source_plugin_candidate.lower().endswith(".esm") or source_plugin_candidate.lower().endswith(".esl")):
                         source_mods_to_process.append((mod_display_name, mod_name_internal, source_plugin_candidate))
                     else:
-                        self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Skipping mod '{mod_display_name}' (internal: {mod_name_internal}) as it's a master file or has no main plugin.")
+                        self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Skipping mod '{mod_display_name}' (internal: {mod_name_internal}) as it's a master file, ESL, or has no main plugin.")
 
             if not source_mods_to_process:
-                self.dialog.showWarning("No Source Mods", "No suitable source mods found for 'Generate All'. Skipping.")
+                self.dialog.showWarning("No Source Mods", "No suitable source mods found for 'Generate All' (must be active ESPs). Skipping.")
                 self.wrapped_organizer.log(2, "SkyGen: No suitable source mods found for 'Generate All'.")
                 return
 
@@ -344,8 +359,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     self.dialog.determined_xedit_exe_path,
                     self.dialog.determined_xedit_executable_name,
                     xedit_script_filename,
-                    game_mode_flag,
-                    game_version,
+                    game_version, # Pass game_version
                     source_export_script_options,
                     self.wrapped_organizer.log
                 )
@@ -411,8 +425,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 self.dialog.determined_xedit_exe_path,
                 self.dialog.determined_xedit_executable_name,
                 xedit_script_filename,
-                game_mode_flag,
-                game_version,
+                game_version, # Pass game_version
                 source_export_script_options,
                 self.wrapped_organizer.log
             )
@@ -446,18 +459,4 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 broad_category_swap_enabled=broad_category_swap_enabled,
                 search_keywords=keywords
             )
-
-    def __tr(self, str_: str) -> str:
-        """Translates a string using MO2's translation mechanism."""
-        return self.organizer.qtTr(str_, self.name())
-
-    def deinit(self):
-        """
-        Called by MO2 when the plugin is being unloaded.
-        Ensures the custom debug log file is properly closed.
-        """
-        if self.wrapped_organizer:
-            self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Plugin de-initializing. Closing debug log file.")
-            self.wrapped_organizer.close_log_file()
-        return True
 
