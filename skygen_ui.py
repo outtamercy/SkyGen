@@ -11,6 +11,9 @@ import os
 import json
 from typing import Any, Optional, Union
 
+# IMPORTANT: Changed to import the module directly
+from . import skygen_file_utilities
+
 # Import MO2_LOG_* constants from the new constants file
 from .skygen_constants import (
     MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO,
@@ -26,49 +29,45 @@ class OrganizerWrapper:
         super().__init__()
         self._organizer = organizer
         self._log_file_path: Optional[Path] = None
-        self._log_file_handle: Optional[Any] = None
+        self._log_file_handle: Optional[Any] = None # This will effectively be managed by make_file_logger
         self._log_initialized = False
         self.dialog_instance: Optional[Any] = None
-
+        self._log_function: Optional[callable] = None # NEW: Store the actual logging function
 
     def set_log_file_path(self, path: Path):
         self._log_file_path = path
+        # Ensure directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._log_file_handle = open(path, 'w', encoding='utf-8')
+            # Use the make_file_logger function from skygen_file_utilities
+            self._log_function = skygen_file_utilities.make_file_logger(path) # Store the returned log function
             self._log_initialized = True
             self.log(MO2_LOG_INFO, f"SkyGen: Log file initialized at: {path}")
         except Exception as e:
+            # Fallback if file logging fails
             print(f"SkyGen: ERROR: Failed to open log file {path}: {e}")
-            self._log_file_handle = None
+            self._log_function = None # Ensure it's cleared if it fails
             self._log_initialized = False
 
     def log(self, mo2_log_level: int, message: str):
-        from datetime import datetime
-        level_name = {
-            MO2_LOG_CRITICAL: "CRITICAL", MO2_LOG_ERROR: "ERROR", MO2_LOG_WARNING: "WARNING",
-            MO2_LOG_INFO: "INFO", MO2_LOG_DEBUG: "DEBUG", MO2_LOG_TRACE: "TRACE"
-        }.get(mo2_log_level, "UNKNOWN")
-        full_message = f"[{datetime.now().isoformat()}] [{level_name}] {message}"
-        
-        if self._log_file_handle and self._log_initialized:
-            try:
-                self._log_file_handle.write(f"{full_message}\n")
-                self._log_file_handle.flush()
-            except Exception as e:
-                print(f"SkyGen: ERROR: Failed to write to log file: {e}")
-                self._log_file_handle = None
-                self._log_initialized = False
+        # If our file logger is initialized, use it. Otherwise, fallback to print.
+        if self._log_initialized and hasattr(self, '_log_function') and self._log_function:
+            self._log_function(mo2_log_level, message) # Pass level and message to the file logger
         else:
+            # Fallback to console print if custom log file is not initialized
+            level_name = { # Re-add level_name mapping for fallback print
+                MO2_LOG_CRITICAL: "CRITICAL", MO2_LOG_ERROR: "ERROR", MO2_LOG_WARNING: "WARNING",
+                MO2_LOG_INFO: "INFO", MO2_LOG_DEBUG: "DEBUG", MO2_LOG_TRACE: "TRACE"
+            }.get(mo2_log_level, "UNKNOWN")
+            full_message = f"[{level_name}] {message}" # No timestamp for fallback print
             print(full_message)
 
-
     def close_log_file(self):
-        if self._log_file_handle:
-            self.log(MO2_LOG_INFO, "SkyGen: Closing debug log file.")
-            self._log_file_handle.close()
-            self._log_file_handle = None
-            self._log_initialized = False
+        # With the new file logger, closing is handled by the context manager in make_file_logger
+        # or by the OS when the process exits. No explicit close needed here for 'a' mode.
+        if self._log_initialized:
+            self.log(MO2_LOG_INFO, "SkyGen: Attempting to close debug log file (may be handled automatically).")
+            self._log_initialized = False # Mark as de-initialized
 
     def get_level_name(self, level: int) -> str:
         if level == MO2_LOG_CRITICAL: return "CRITICAL"
@@ -113,7 +112,7 @@ class OrganizerWrapper:
 
     def gameFeatures(self):
         try: return self._organizer.gameFeatures()
-        except Exception as e: self.log(MO2_LOG_ERROR, f"Error in gameFeatures: {e}"); return None
+        except Exception as e: self.log(MO2_LOG_ERROR, f"Error in gameFeatures: {e}"); return []
 
     def modList(self):
         try: return self._organizer.modList()
@@ -208,7 +207,6 @@ class SkyGenToolDialog(QDialog):
         self.generate_all = False
         self.executables_dict = {}
         self.pre_exported_xedit_json_path = ""
-        # New: Store the full exported target bases here, to be accessed by the tool
         self.all_exported_target_bases_by_formid: dict = {} 
 
 
