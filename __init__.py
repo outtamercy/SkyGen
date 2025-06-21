@@ -5,16 +5,12 @@ import json
 from pathlib import Path
 from typing import Optional, Any
 
-# Import UI and utility functions. Note: No direct import of generation functions here,
-# as they will be called directly from this class's methods after dialog data is collected.
+# Import UI and utility functions.
+# IMPORTANT: Removed direct import of generate_bos_ini_files and generate_and_write_skypatcher_yaml
+# to prevent circular dependency issues during module loading.
+# They will now be accessed via skygen_file_utilities.function_name.
 from .skygen_ui import SkyGenToolDialog, OrganizerWrapper
-from .skygen_file_utilities import (
-    load_json_data,
-    get_xedit_exe_path,
-    safe_launch_xedit,
-    generate_and_write_skypatcher_yaml,
-    generate_bos_ini_files,
-)
+from . import skygen_file_utilities # Import the module directly
 
 # Ensure necessary PyQt6 modules are imported for the main plugin if still used here,
 # or for dummy QMessageBox if needed for initial checks.
@@ -73,7 +69,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         self.dialog = SkyGenToolDialog(self.wrapped_organizer)
         self.wrapped_organizer.dialog_instance = self.dialog # Pass dialog instance for direct error showing
         
-        xedit_paths = get_xedit_exe_path(self.wrapped_organizer, self.dialog)
+        # Use skygen_file_utilities.get_xedit_exe_path for detection
+        xedit_paths = skygen_file_utilities.get_xedit_exe_path(self.wrapped_organizer, self.dialog)
         if xedit_paths:
             self.dialog.determined_xedit_exe_path, self.dialog.determined_xedit_executable_name = xedit_paths
             self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Detected xEdit at: {self.dialog.determined_xedit_exe_path} (MO2 Name: {self.dialog.determined_xedit_executable_name})")
@@ -109,7 +106,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             return
 
         # Ensure xEdit path is up-to-date before showing dialog
-        xedit_paths = get_xedit_exe_path(self.wrapped_organizer, self.dialog)
+        # Use skygen_file_utilities.get_xedit_exe_path for detection
+        xedit_paths = skygen_file_utilities.get_xedit_exe_path(self.wrapped_organizer, self.dialog)
         if xedit_paths:
             self.dialog.determined_xedit_exe_path, self.dialog.determined_xedit_executable_name = xedit_paths
         
@@ -127,11 +125,11 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     target_mod_display_name=self.dialog.selected_target_mod_name,
                     source_mod_display_name=self.dialog.selected_source_mod_name,
                     category=self.dialog.selected_category,
-                    keywords_str=self.dialog.keywords_lineEdit.text(), # Get directly from lineEdit
+                    keywords_str=self.dialog.keywords_lineEdit.text(),
                     broad_category_swap_enabled=self.dialog.broad_category_swap_checkbox.isChecked(),
                     generate_all=self.dialog.generate_all_checkbox.isChecked(),
                     output_folder_path=output_folder_path,
-                    game_version=self.dialog.selected_game_version # Pass game version directly
+                    game_version=self.dialog.selected_game_version
                 )
             elif output_type == "BOS INI":
                 self.wrapped_organizer.log(1, "SkyGen: Generating BOS INI files...")
@@ -142,9 +140,11 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     self.wrapped_organizer.log(3, f"SkyGen: IGPC JSON file not found: {igpc_json_path}")
                     return
 
-                igpc_data = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=igpc_json_path, description="IGPC JSON", dialog_instance=self.dialog)
+                # Use skygen_file_utilities.load_json_data
+                igpc_data = skygen_file_utilities.load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=igpc_json_path, description="IGPC JSON", dialog_instance=self.dialog)
                 if igpc_data:
-                    generate_bos_ini_files(wrapped_organizer=self.wrapped_organizer, igpc_data=igpc_data, output_folder_path=output_folder_path, dialog_instance=self.dialog)
+                    # Use skygen_file_utilities.generate_bos_ini_files
+                    skygen_file_utilities.generate_bos_ini_files(wrapped_organizer=self.wrapped_organizer, igpc_data=igpc_data, output_folder_path=output_folder_path, dialog_instance=self.dialog)
                 else:
                     self.wrapped_organizer.log(3, "SkyGen: Failed to load IGPC data. Aborting BOS INI generation.")
         else:
@@ -205,7 +205,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         broad_category_swap_enabled: bool,
         generate_all: bool,
         output_folder_path: Path,
-        game_version: str # Added game_version parameter
+        game_version: str
     ):
         """
         Encapsulates the SkyPatcher YAML generation logic.
@@ -266,14 +266,15 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             "BroadCategorySwap": "false"
         }
 
-        xedit_output_path_target_all = safe_launch_xedit(
+        # Use skygen_file_utilities.safe_launch_xedit
+        xedit_output_path_target_all = skygen_file_utilities.safe_launch_xedit(
             self.wrapped_organizer,
             self.dialog,
             self.dialog.determined_xedit_exe_path,
             self.dialog.determined_xedit_executable_name,
             xedit_script_filename,
             game_mode_flag,
-            game_version, # Pass game_version
+            game_version,
             target_export_script_options,
             self.wrapped_organizer.log
         )
@@ -283,7 +284,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.showError("xEdit Export Failed", "Failed to export data from the Target Mod. Check xEdit logs for details.")
             return
 
-        target_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_target_all, "Target Mod xEdit Export", self.dialog)
+        # Use skygen_file_utilities.load_json_data
+        target_exported_json = skygen_file_utilities.load_json_data(self.wrapped_organizer, xedit_output_path_target_all, "Target Mod xEdit Export", self.dialog)
         
         try:
             xedit_output_path_target_all.unlink()
@@ -334,20 +336,22 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                     "BroadCategorySwap": str(broad_category_swap_enabled).lower()
                 }
                 
-                xedit_output_path_source = safe_launch_xedit(
+                # Use skygen_file_utilities.safe_launch_xedit
+                xedit_output_path_source = skygen_file_utilities.safe_launch_xedit(
                     self.wrapped_organizer,
                     self.dialog,
                     self.dialog.determined_xedit_exe_path,
                     self.dialog.determined_xedit_executable_name,
                     xedit_script_filename,
                     game_mode_flag,
-                    game_version, # Pass game_version
+                    game_version,
                     source_export_script_options,
                     self.wrapped_organizer.log
                 )
                 
                 if xedit_output_path_source:
-                    source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {current_source_mod_display_name}", dialog_instance=self.dialog)
+                    # Use skygen_file_utilities.load_json_data
+                    source_exported_json = skygen_file_utilities.load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {current_source_mod_display_name}", dialog_instance=self.dialog)
                     
                     try:
                         xedit_output_path_source.unlink()
@@ -356,7 +360,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                         self.wrapped_organizer.log(2, f"SkyGen: WARNING: Failed to delete source export JSON '{xedit_output_path_source}': {e}")
                     
                     if source_exported_json and "baseObjects" in source_exported_json:
-                        generated = generate_and_write_skypatcher_yaml(
+                        # Use skygen_file_utilities.generate_and_write_skypatcher_yaml
+                        generated = skygen_file_utilities.generate_and_write_skypatcher_yaml(
                             wrapped_organizer=self.wrapped_organizer,
                             json_data=source_exported_json,
                             target_mod_name=target_mod_display_name,
@@ -398,14 +403,15 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 "BroadCategorySwap": str(broad_category_swap_enabled).lower()
             }
 
-            xedit_output_path_source = safe_launch_xedit(
+            # Use skygen_file_utilities.safe_launch_xedit
+            xedit_output_path_source = skygen_file_utilities.safe_launch_xedit(
                 self.wrapped_organizer,
                 self.dialog,
                 self.dialog.determined_xedit_exe_path,
                 self.dialog.determined_xedit_executable_name,
                 xedit_script_filename,
                 game_mode_flag,
-                game_version, # Pass game_version
+                game_version,
                 source_export_script_options,
                 self.wrapped_organizer.log
             )
@@ -415,7 +421,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 self.dialog.showError("xEdit Export Failed", "Failed to export data from the Source Mod. Check xEdit logs for details.")
                 return
 
-            source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self.dialog)
+            # Use skygen_file_utilities.load_json_data
+            source_exported_json = skygen_file_utilities.load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self.dialog)
             
             try:
                 xedit_output_path_source.unlink()
@@ -428,7 +435,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 self.dialog.showError("JSON Parse Error", "Source mod xEdit export JSON is empty or malformed. Cannot generate YAML.")
                 return
 
-            generate_and_write_skypatcher_yaml(
+            # Use skygen_file_utilities.generate_and_write_skypatcher_yaml
+            skygen_file_utilities.generate_and_write_skypatcher_yaml(
                 wrapped_organizer=self.wrapped_organizer,
                 json_data=source_exported_json,
                 target_mod_name=target_mod_display_name,
