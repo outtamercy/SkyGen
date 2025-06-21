@@ -304,8 +304,19 @@ class SkyGenToolDialog(QDialog):
         self._setup_ui()
         self._populate_game_versions()
         self._populate_categories()
-        self._populate_mods()
+        # REMOVED: self._populate_mods()
         self._load_config() # Load saved settings
+
+
+    def showEvent(self, event):
+        """
+        Called when the dialog is shown. We populate mods here to ensure MO2 is fully initialized.
+        """
+        super().showEvent(event) # Always call the base class implementation
+        self.wrapped_organizer.log(0, "SkyGen: DEBUG: showEvent triggered. Populating mods now.")
+        self._populate_mods() # Call _populate_mods here
+        # We might want to save config here too if initial population changes selections
+        # self._save_config() # Uncomment if you want to save default selections on first show
 
 
     def _setup_ui(self):
@@ -711,9 +722,6 @@ class SkyGenToolDialog(QDialog):
                 self._on_output_type_toggled() # Trigger visibility update
                 
                 # Apply general settings
-                # self.game_version_combo.setCurrentIndex( # Removed as per fix
-                #     self.game_version_combo.findText(config.get("game_version", self.game_version_combo.currentText()))
-                # )
                 loaded_game_version = config.get("game_version", "SkyrimSE")
                 if loaded_game_version == "SkyrimSE":
                     self.sse_radio.setChecked(True)

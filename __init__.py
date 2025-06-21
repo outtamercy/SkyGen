@@ -149,6 +149,10 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         # but a default QIcon should prevent the crash.
         return QIcon()
 
+    def tooltip(self) -> str:
+        """Returns the tooltip text displayed when hovering over the plugin."""
+        return "Automates generation of SkyPatcher YAML and BOS INI files using xEdit."
+
     def author(self) -> str:
         """Returns the author of the tool."""
         return "ZanderLex"
@@ -186,7 +190,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.output_folder_lineEdit.setText(str(default_output_path))
             self.dialog.output_folder_path = str(default_output_path)
 
-        if self.dialog.exec() == QMessageBox.StandardButton.Accepted:
+        if self.dialog.exec() == QDialog.Accepted: # Corrected from QMessageBox.StandardButton.Accepted
             self.wrapped_organizer.log(1, "SkyGen: Dialog accepted. Starting generation process.")
             
             output_type = self.dialog.selected_output_type
