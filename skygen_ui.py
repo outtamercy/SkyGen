@@ -16,7 +16,7 @@ from .skygen_file_utilities import (
     load_json_data,
     get_xedit_exe_path,
     safe_launch_xedit,
-    generate_and_write_skypatcher_yaml,
+    generate_and_write_skypatcher_yaml, # Ensure this is correctly imported
     generate_bos_ini_files,
 )
 
@@ -45,7 +45,9 @@ class OrganizerWrapper:
         # Ensure directory exists
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self._log_file_handle = open(path, 'a', encoding='utf-8')
+            # Using 'w' mode to clear the log file on each new session
+            # If you prefer to append, change 'w' to 'a'
+            self._log_file_handle = open(path, 'w', encoding='utf-8') 
             self._log_initialized = True
             self.log(MO2_LOG_INFO, f"SkyGen: Log file initialized at: {path}")
         except Exception as e:
@@ -55,7 +57,13 @@ class OrganizerWrapper:
             self._log_initialized = False
 
     def log(self, mo2_log_level: int, message: str):
-        full_message = f"[{self.get_level_name(mo2_log_level)}] {message}"
+        from datetime import datetime # Import here to avoid circular dependency
+        # Format message with timestamp and level name
+        level_name = {
+            MO2_LOG_CRITICAL: "CRITICAL", MO2_LOG_ERROR: "ERROR", MO2_LOG_WARNING: "WARNING",
+            MO2_LOG_INFO: "INFO", MO2_LOG_DEBUG: "DEBUG", MO2_LOG_TRACE: "TRACE"
+        }.get(mo2_log_level, "UNKNOWN")
+        full_message = f"[{datetime.now().isoformat()}] [{level_name}] {message}"
         
         # Log to custom debug file
         if self._log_file_handle and self._log_initialized:
@@ -63,11 +71,12 @@ class OrganizerWrapper:
                 self._log_file_handle.write(f"{full_message}\n")
                 self._log_file_handle.flush() # Ensure immediate write
             except Exception as e:
-                # Fallback if writing to log file fails
+                # Fallback if writing to log file fails (and disable further attempts for this session)
                 print(f"SkyGen: ERROR: Failed to write to log file: {e}")
-                self._log_file_handle = None # Disable further attempts for this session
+                self._log_file_handle = None 
+                self._log_initialized = False
         else:
-            # Fallback to console print if custom log file is not initialized
+            # Fallback to console print if custom log file is not initialized or failed
             print(full_message)
 
 
@@ -595,7 +604,7 @@ class SkyGenToolDialog(QDialog):
         Uses organizer.modList().mod().absolutePath() to get the mod's directory.
         """
         # Get the IMod object
-        mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) # Corrected: used wrapped_organizer
+        mod_obj = self.wrapped_organizer.modList().getMod(mod_internal_name) 
         if not mod_obj:
             self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
             return None
@@ -918,14 +927,14 @@ class SkyGenToolDialog(QDialog):
 
         if self.generate_all:
             self.wrapped_organizer.log(1, "SkyGen: 'Generate All' selected. Processing all compatible source mods.")
-            all_mods = self.wrapped_organizer.modList().allMods() # Corrected: used wrapped_organizer
+            all_mods = self.wrapped_organizer.modList().allMods() 
             successful_generations = 0
             
             # Filter out target mod and game master files from source mods for 'all' generation
             source_mods_to_process = []
             for mod_name_internal in all_mods:
-                if self.wrapped_organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE: # Corrected: used wrapped_organizer
-                    mod_display_name = self.wrapped_organizer.modList().displayName(mod_name_internal) # Corrected: used wrapped_organizer
+                if self.wrapped_organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE: 
+                    mod_display_name = self.wrapped_organizer.modList().displayName(mod_name_internal)
                     if mod_display_name == target_mod_display_name: # Don't process target mod as source
                         continue
                     

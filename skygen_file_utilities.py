@@ -2,24 +2,21 @@ from pathlib import Path
 import mobase
 import os
 import time
-# Removed subprocess import
 import json
 import yaml
 import configparser
 import re
 import traceback
-import shutil # Added shutil for file operations
+import shutil
 from collections import defaultdict
 from typing import Optional, Any
-# Removed datetime import as make_file_logger is being removed
-
+from datetime import datetime # Re-added datetime import
 
 # MODIFIED: Changed QStringList to QByteArray for PyQt6 compatibility
 try:
-    from PyQt6.QtCore import QProcess, QByteArray # QProcess for MO2's startApplication, QByteArray for output
-    from PyQt6.QtWidgets import QMessageBox # For dialog_instance.showError
+    from PyQt6.QtCore import QProcess, QByteArray
+    from PyQt6.QtWidgets import QMessageBox
 except ImportError:
-    # Dummy classes for environments without PyQt6
     class QProcess:
         ProcessState = type('ProcessState', (object,), {'NotRunning': 0, 'Starting': 1, 'Running': 2})
         ExitStatus = type('ExitStatus', (object,), {'NormalExit': 0, 'CrashExit': 1})
@@ -28,7 +25,7 @@ except ImportError:
         def setArguments(self, args): pass
         def setWorkingDirectory(self, path): pass
         def start(self): pass
-        def waitForFinished(self, timeout): return True # Simulate immediate finish for dummy
+        def waitForFinished(self, timeout): return True
         def kill(self): pass
         def terminate(self): pass
         def exitCode(self): return 0
@@ -49,12 +46,12 @@ except ImportError:
         @staticmethod
         def information(parent, title, message): print(f"INFORMATION: {title}: {message}")
 
-    class DummySignal: # Required for QProcess.connect mocks
+    class DummySignal:
         def connect(self, func): pass
 
 
 # Define a constant for max poll time
-MAX_POLL_TIME = 60 # Maximum seconds to wait for xEdit export to complete (increased from 30)
+MAX_POLL_TIME = 60
 
 # Import MO2_LOG_* constants from skygen_constants
 from .skygen_constants import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_TRACE
@@ -72,7 +69,7 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
     """
     if not file_path or not file_path.is_file():
         wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: {description} file path is invalid or file not found at: {file_path}.")
-        if dialog_instance: # Only show error if dialog_instance is provided
+        if dialog_instance:
             dialog_instance.showError("File Not Found", f"{description} file not found at the specified path: {file_path}.")
         return None
 
@@ -81,9 +78,9 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
             data = json.load(f)
             wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Successfully loaded {description} from: {file_path}")
             return data
-    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e: # Added UnicodeDecodeError
+    except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e:
         wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}")
-        if dialog_instance: # Only show error if dialog_instance is provided
+        if dialog_instance:
             dialog_instance.showError("File Read Error", f"Error loading {description} from {file_path}:\n{e}")
         return None
 
@@ -93,36 +90,24 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
     Determines the xEdit executable path and its MO2 registered name.
     Prioritizes official xEdit names used by MO2, with case-insensitive matching.
     """
-    # Convert all target names to lowercase for robust comparison
     xedit_names_lower = {"sseedit", "tes5edit", "fo4edit", "fnvedit", "oblivionedit", "xedit"}
-    executables = wrapped_organizer.getExecutables() # Dictionary of MO2 executables
+    executables = wrapped_organizer.getExecutables()
 
-    # Prioritize executables whose display name or binary matches common xEdit names
     for exe_name, exe_info in executables.items():
         exe_path = Path(exe_info.binary())
         
-        # Log the display name and binary stem for debugging purposes
-        # debug_logger = wrapped_organizer.log
-        # debug_logger(MO2_LOG_TRACE, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
-
-        # Check if the display name (lowercased) or the binary name stem (lowercased) matches an xEdit name
         if exe_info.displayName().lower() in xedit_names_lower or exe_path.stem.lower() in xedit_names_lower:
             wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
-            return exe_path, exe_name # Return path and the internal MO2 name
+            return exe_path, exe_name
 
-    # --- ADD THE FALLBACK LOGIC HERE (ChatGPT's suggestion) ---
     wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
     
-    # Calculate potential fallback path relative to MO2's base directory (common for Wabbajack)
-    # wrapped_organizer.profilePath() is usually <MO2_Base>/profiles/<ProfileName>
-    # .parent.parent moves up two levels to <MO2_Base>
     mo2_base_path = Path(wrapped_organizer.profilePath()).parent.parent
     fallback_path = mo2_base_path / "tools" / "SSEEdit" / "SSEEdit.exe"
 
     if fallback_path.is_file():
         wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Found xEdit via Wabbajack-style fallback: {fallback_path}")
-        return fallback_path, "SSEEdit" # Use a generic MO2 name for this fallback detection
-    # --- END FALLBACK LOGIC ---
+        return fallback_path, "SSEEdit"
 
     wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings or via Wabbajack fallback.")
     if dialog_instance:
@@ -470,6 +455,228 @@ end;
 end.
 """
     return pascal_script_content
+
+
+def generate_and_write_skypatcher_yaml(
+    wrapped_organizer: Any,
+    json_data: dict,
+    target_mod_name: str,
+    output_folder_path: Path,
+    record_type: str,
+    broad_category_swap_enabled: bool,
+    search_keywords: list[str] # Changed to list of strings
+) -> bool:
+    """
+    Generates a SkyPatcher YAML file from the xEdit exported JSON data.
+    """
+    wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Generating SkyPatcher YAML for {target_mod_name}, record type: {record_type}, keywords: {search_keywords}")
+
+    # Ensure the output directory exists
+    output_folder_path.mkdir(parents=True, exist_ok=True)
+
+    # Convert target_mod_name (display name) to its internal plugin name
+    # We need the internal name (e.g., "DynDOLOD.esp" or "Smashed Patch.esp") for the YAML.
+    # We retrieve the internal name using the wrapped_organizer's modList.
+    internal_target_mod_name = None
+    target_mod_list = wrapped_organizer.modList()
+    for mod_internal_name in target_mod_list.allMods():
+        if target_mod_list.displayName(mod_internal_name) == target_mod_name:
+            # Now, find the actual plugin file name within this mod's folder
+            mod_path = Path(target_mod_list.modPath(mod_internal_name))
+            plugin_files = list(mod_path.glob("*.esp")) + list(mod_path.glob("*.esm")) + list(mod_path.glob("*.esl"))
+            if plugin_files:
+                # Prioritize a plugin that matches the mod's internal name, or just take the first one
+                found_plugin = None
+                for pf in plugin_files:
+                    if pf.stem.lower() == mod_internal_name.lower():
+                        found_plugin = pf.name
+                        break
+                if not found_plugin:
+                    found_plugin = plugin_files[0].name # Fallback to first found
+                internal_target_mod_name = found_plugin
+                break
+    
+    if not internal_target_mod_name:
+        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Could not find plugin file for target mod '{target_mod_name}'. Cannot generate YAML.")
+        wrapped_organizer.dialog_instance.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
+        return False
+
+
+    yaml_output = []
+    base_objects = json_data.get("baseObjects", [])
+
+    # Retrieve all_exported_target_bases_by_formid from the dialog instance
+    # This dictionary is populated once with the target mod's full export.
+    all_exported_target_bases_by_formid = wrapped_organizer.dialog_instance.all_exported_target_bases_by_formid
+    
+    # Filter source objects based on keywords and broad category swap
+    filtered_source_objects = []
+    for obj in base_objects:
+        if "EditorID" in obj:
+            editor_id_lower = obj["EditorID"].lower()
+            
+            # Keyword filtering logic
+            keywords_match = True
+            if search_keywords:
+                keywords_match = any(k.lower() in editor_id_lower for k in search_keywords)
+
+            # Category filtering based on broad_category_swap_enabled
+            if broad_category_swap_enabled:
+                # If broad swap is enabled, we only apply keyword filter, not signature filter here.
+                # The signature check (record_type) is implicitly handled by xEdit export now.
+                if keywords_match:
+                    filtered_source_objects.append(obj)
+            else:
+                # If broad swap is NOT enabled, apply strict signature and keyword filter
+                if obj.get("Signature") == record_type and keywords_match:
+                    filtered_source_objects.append(obj)
+        else:
+            wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Object missing 'EditorID', skipping: {obj}")
+
+    if not filtered_source_objects:
+        wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: No matching objects found for record type '{record_type}' with keywords '{search_keywords}'. No YAML generated for this source.")
+        wrapped_organizer.dialog_instance.showWarning("No Matches", f"No matching objects found for record type '{record_type}' with keywords '{', '.join(search_keywords)}' in source mod. No YAML generated.")
+        return False
+
+    for source_obj in filtered_source_objects:
+        source_form_id = source_obj.get("FormID")
+        source_editor_id = source_obj.get("EditorID")
+        source_signature = source_obj.get("Signature")
+        source_origin_mod = source_obj.get("OriginMod")
+
+        if not source_form_id:
+            wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: Skipping object with missing FormID: {source_obj.get('EditorID', 'N/A')}")
+            continue
+
+        target_obj = all_exported_target_bases_by_formid.get(source_form_id)
+
+        if target_obj:
+            target_editor_id = target_obj.get("EditorID")
+            target_signature = target_obj.get("Signature")
+            target_origin_mod = target_obj.get("OriginMod")
+
+            # Create the YAML entry based on comparison
+            yaml_entry = {
+                "base": f"{source_form_id}~{source_origin_mod}",
+                "match": {},
+                "patch": {}
+            }
+            
+            # Condition for broad category swap: If enabled, and signatures don't match,
+            # we need to ensure the target's signature is the one used in the YAML match.
+            if broad_category_swap_enabled and source_signature != target_signature:
+                yaml_entry["match"]["signature"] = target_signature
+                # If target has a FullName and it's different from source's, add it to match
+                if "FullName" in target_obj and target_obj["FullName"] != source_obj.get("FullName"):
+                    yaml_entry["match"]["fullName"] = target_obj["FullName"]
+                wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: Broad swap enabled: Mismatched signature. Source '{source_editor_id}' ({source_signature}) will match target '{target_editor_id}' ({target_signature}).")
+            
+            # Default match for signature if not broad swap or signatures match
+            if not broad_category_swap_enabled or source_signature == target_signature:
+                yaml_entry["match"]["signature"] = source_signature # Match the source signature
+
+            # Add EditorID to match only if different or broad swap is not changing signature
+            if source_editor_id != target_editor_id and not (broad_category_swap_enabled and source_signature != target_signature):
+                yaml_entry["match"]["editorID"] = target_editor_id
+
+            # Add FullName to match if present and different, and not already handled by broad swap
+            if "FullName" in target_obj and target_obj["FullName"] != source_obj.get("FullName") and not (broad_category_swap_enabled and source_signature != target_signature):
+                yaml_entry["match"]["fullName"] = target_obj["FullName"]
+            
+            # --- Common patch elements (always include if present in target and different) ---
+            if "Model" in target_obj and target_obj["Model"] != source_obj.get("Model"):
+                yaml_entry["patch"]["MODL"] = target_obj["Model"]
+
+            if "ObjectBounds" in target_obj and target_obj["ObjectBounds"] != source_obj.get("ObjectBounds"):
+                yaml_entry["patch"]["OBND"] = target_obj["ObjectBounds"]
+
+            # Keywords patching
+            target_keywords = target_obj.get("Keywords", [])
+            source_keywords = source_obj.get("Keywords", [])
+            
+            # Convert lists of keyword dictionaries to sets of FormIDs for easier comparison
+            target_keyword_formids = {kw["FormID"] for kw in target_keywords if "FormID" in kw}
+            source_keyword_formids = {kw["FormID"] for kw in source_keywords if "FormID" in kw}
+
+            added_keywords = []
+            removed_keywords = []
+
+            for tk_obj in target_keywords:
+                if tk_obj.get("FormID") not in source_keyword_formids:
+                    added_keywords.append(f"0x{tk_obj['FormID']}~{tk_obj['OriginMod']}") # Format for SkyPatcher
+            
+            for sk_obj in source_keywords:
+                if sk_obj.get("FormID") not in target_keyword_formids:
+                    removed_keywords.append(f"0x{sk_obj['FormID']}~{sk_obj['OriginMod']}") # Format for SkyPatcher
+
+            if added_keywords or removed_keywords:
+                yaml_entry["patch"]["VMAD"] = {}
+                if added_keywords:
+                    yaml_entry["patch"]["VMAD"]["add"] = added_keywords
+                if removed_keywords:
+                    yaml_entry["patch"]["VMAD"]["remove"] = removed_keywords
+
+            # Add Worldspace information to patch if present in target and different
+            if "WorldspaceFormID" in target_obj and target_obj["WorldspaceFormID"] != source_obj.get("WorldspaceFormID"):
+                yaml_entry["patch"]["WRLD"] = f"0x{target_obj['WorldspaceFormID']}~{target_obj['OriginMod']}" # Assuming target origin mod is correct for worldspace
+
+            if "WorldspaceName" in target_obj and target_obj["WorldspaceName"] != source_obj.get("WorldspaceName"):
+                 # This would be an unusual case for patching, as WRLD usually covers it.
+                 # Leaving it out unless a specific patch case requires only name.
+                 pass
+
+            # Only add if there's anything to patch
+            if yaml_entry["patch"]:
+                yaml_output.append(yaml_entry)
+        else:
+            wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: INFO: No matching object found in target mod for source FormID: {source_form_id} ({source_editor_id}). Skipping YAML entry for this object.")
+
+    if yaml_output:
+        # Determine the output filename
+        # Format: SkyPatcher_{SourceModDisplayName}_{RecordType}_{keywords}.yaml
+        # Example: SkyPatcher_EnhancedLandscapes_STAT_pine_oak.yaml
+        
+        # Get actual source mod display name from the first processed object's origin mod
+        # This is more robust as it comes directly from the xEdit export
+        actual_source_mod_display_name = "UnknownSource"
+        if filtered_source_objects:
+            first_obj_origin_mod_filename = filtered_source_objects[0].get("OriginMod")
+            if first_obj_origin_mod_filename:
+                # Look up display name in MO2's mod list
+                mod_list = wrapped_organizer.modList()
+                for mod_internal_name in mod_list.allMods():
+                    mod_path = Path(mod_list.modPath(mod_internal_name))
+                    if (mod_path / first_obj_origin_mod_filename).is_file(): # Check if plugin exists within this mod
+                        actual_source_mod_display_name = mod_list.displayName(mod_internal_name)
+                        break
+                if actual_source_mod_display_name == "UnknownSource":
+                    # Fallback if display name not found via plugin check, use filename stem
+                    actual_source_mod_display_name = Path(first_obj_origin_mod_filename).stem.replace(".esm", "").replace(".esp", "").replace(".esl", "")
+
+        keywords_suffix = "_" + "_".join(search_keywords) if search_keywords else ""
+        
+        # Sanitize display name for filename
+        sanitized_source_mod_name = re.sub(r'[^\w\-_\. ]', '', actual_source_mod_display_name).strip()
+        sanitized_record_type = re.sub(r'[^\w]', '', record_type).strip() # Only alphanumeric for record type
+
+        output_filename = f"SkyPatcher_{sanitized_source_mod_name}_{sanitized_record_type}{keywords_suffix}.yaml"
+        output_filepath = output_folder_path / output_filename
+
+        try:
+            with open(output_filepath, 'w', encoding='utf-8') as f:
+                # Use NoAliasDumper to prevent YAML aliases
+                yaml.dump(yaml_output, f, sort_keys=False, default_flow_style=False, Dumper=NoAliasDumper)
+            wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Successfully generated SkyPatcher YAML to: {output_filepath}")
+            wrapped_organizer.dialog_instance.showInformation("YAML Generated", f"Successfully generated YAML for '{actual_source_mod_display_name}' ({record_type}) to:\n{output_filepath}")
+            return True
+        except Exception as e:
+            wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write SkyPatcher YAML to '{output_filepath}': {e}\n{traceback.format_exc()}")
+            wrapped_organizer.dialog_instance.showError("YAML Write Error", f"Failed to write SkyPatcher YAML to '{output_filepath}':\n{e}")
+            return False
+    else:
+        wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: No YAML content generated for record type '{record_type}' from source '{target_mod_name}' and keywords '{search_keywords}'.")
+        # An information message might already be shown by the "No matching objects found" check above.
+        return False
 
 
 def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xedit_mo2_name: str, script_name: str, game_mode_flag: str, game_version: str, script_options: dict, debug_logger: Any) -> Optional[Path]:
