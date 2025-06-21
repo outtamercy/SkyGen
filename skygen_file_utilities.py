@@ -545,7 +545,7 @@ def safe_launch_xedit(organizer: mobase.IOrganizer, dialog: Any, xedit_path: Pat
     process.start() # Start the process
     
     # Wait for the process to finish (blocking call, but QProcess handles events)
-    if not process.waitForFinished(timeout=600000): # 10 minutes timeout in ms
+    if not process.waitForFinished(600000): # Corrected: Pass msecs as a positional argument
         process.kill()
         dialog.showError("xEdit Timeout", "xEdit process timed out after 10 minutes. It may be stuck or processing a very large load order.")
         debug_logger(MO2_LOG_ERROR, "SkyGen: ERROR: xEdit process timed out.")
