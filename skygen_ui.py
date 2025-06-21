@@ -881,14 +881,15 @@ class SkyGenToolDialog(QDialog):
         }
 
         xedit_output_path_target_all = safe_launch_xedit(
-            self.wrapped_organizer._organizer, # Pass original MO2 organizer
-            self, # Pass dialog instance
-            self.determined_xedit_exe_path,
-            self.determined_xedit_executable_name,
-            xedit_script_filename,
-            game_mode_flag,
-            target_export_script_options,
-            self.wrapped_organizer.log
+            self.wrapped_organizer._organizer, # organizer
+            self, # dialog
+            self.determined_xedit_exe_path, # xedit_path
+            self.determined_xedit_executable_name, # xedit_mo2_name
+            xedit_script_filename, # script_name
+            game_mode_flag, # game_mode_flag
+            self.selected_game_version, # game_version (CORRECTED)
+            target_export_script_options, # script_options
+            self.wrapped_organizer.log # debug_logger
         )
         
         if not xedit_output_path_target_all:
@@ -954,14 +955,15 @@ class SkyGenToolDialog(QDialog):
                 
                 # Run xEdit export for the current source mod and specific category
                 xedit_output_path_source = safe_launch_xedit(
-                    self.wrapped_organizer._organizer, # Pass original MO2 organizer
-                    self, # Pass dialog instance
+                    self.wrapped_organizer._organizer, # organizer
+                    self, # dialog
                     self.determined_xedit_exe_path,
                     self.determined_xedit_executable_name,
                     xedit_script_filename,
                     game_mode_flag,
-                    source_export_script_options,
-                    self.wrapped_organizer.log
+                    self.selected_game_version, # game_version (CORRECTED)
+                    source_export_script_options, # script_options
+                    self.wrapped_organizer.log # debug_logger
                 )
                 
                 if xedit_output_path_source:
@@ -1020,14 +1022,15 @@ class SkyGenToolDialog(QDialog):
             }
 
             xedit_output_path_source = safe_launch_xedit(
-                self.wrapped_organizer._organizer, # Pass original MO2 organizer
-                self, # Pass dialog instance
+                self.wrapped_organizer._organizer, # organizer
+                self, # dialog
                 self.determined_xedit_exe_path,
                 self.determined_xedit_executable_name,
                 xedit_script_filename,
                 game_mode_flag,
-                source_export_script_options,
-                self.wrapped_organizer.log
+                self.selected_game_version, # game_version (CORRECTED)
+                source_export_script_options, # script_options
+                self.wrapped_organizer.log # debug_logger
             )
             
             if not xedit_output_path_source:
