@@ -20,25 +20,25 @@ from .skygen_file_utilities import (
     generate_bos_ini_files,
 )
 
+# Import MO2_LOG_* constants from the new constants file
+from .skygen_constants import (
+    MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO,
+    MO2_LOG_DEBUG, MO2_LOG_TRACE
+)
 
-MO2_LOG_CRITICAL = 5
-MO2_LOG_ERROR = 4
-MO2_LOG_WARNING = 3
-MO2_LOG_INFO = 2
-MO2_LOG_DEBUG = 1
-MO2_LOG_TRACE = 0
 
 class OrganizerWrapper:
     """
     A wrapper class for the mobase.IOrganizer interface to handle logging.
     """
     def __init__(self, organizer: 'mobase.IOrganizer'):
+        super().__init__()
         self._organizer = organizer
         self._log_file_path: Optional[Path] = None
         self._log_file_handle: Optional[Any] = None
         self._log_initialized = False
         self.dialog_instance: Optional[Any] = None # Added for logging UI errors directly
-        # ... other initialization ...
+
 
     def set_log_file_path(self, path: Path):
         self._log_file_path = path

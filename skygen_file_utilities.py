@@ -54,8 +54,8 @@ except ImportError:
 # Define a constant for max poll time
 MAX_POLL_TIME = 60 # Maximum seconds to wait for xEdit export to complete (increased from 30)
 
-# Import MO2_LOG_* constants from skygen_ui
-from .skygen_ui import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_TRACE
+# Import MO2_LOG_* constants from skygen_constants
+from .skygen_constants import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_TRACE
 
 
 # --- Utility Functions (Global helpers) ---
@@ -66,7 +66,7 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
     Requires wrapped_organizer for logging and dialog_instance for showing UI errors.
     """
     if not file_path or not file_path.is_file():
-        wrapped_organizer.log(2, f"SkyGen: WARNING: {description} file path is invalid or file not found at: {file_path}.")
+        wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: {description} file path is invalid or file not found at: {file_path}.")
         if dialog_instance: # Only show error if dialog_instance is provided
             dialog_instance.showError("File Not Found", f"{description} file not found at the specified path: {file_path}.")
         return None
@@ -74,10 +74,10 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            wrapped_organizer.log(1, f"SkyGen: Successfully loaded {description} from: {file_path}")
+            wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Successfully loaded {description} from: {file_path}")
             return data
     except (IOError, json.JSONDecodeError, UnicodeDecodeError) as e: # Added UnicodeDecodeError
-        wrapped_organizer.log(3, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}")
+        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Error loading {description} from {file_path}: {e}")
         if dialog_instance: # Only show error if dialog_instance is provided
             dialog_instance.showError("File Read Error", f"Error loading {description} from {file_path}:\n{e}")
         return None
@@ -98,15 +98,15 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
         
         # Log the display name and binary stem for debugging purposes
         # debug_logger = wrapped_organizer.log
-        # debug_logger(0, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
+        # debug_logger(MO2_LOG_TRACE, f"SkyGen: DEBUG: Checking executable: DisplayName='{exe_info.displayName()}', BinaryStem='{exe_path.stem}'")
 
         # Check if the display name (lowercased) or the binary name stem (lowercased) matches an xEdit name
         if exe_info.displayName().lower() in xedit_names_lower or exe_path.stem.lower() in xedit_names_lower:
-            wrapped_organizer.log(1, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
+            wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Found xEdit executable: '{exe_info.displayName()}' at '{exe_path}' (MO2 Name: '{exe_name}')")
             return exe_path, exe_name # Return path and the internal MO2 name
 
     # --- ADD THE FALLBACK LOGIC HERE (ChatGPT's suggestion) ---
-    wrapped_organizer.log(1, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
+    wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
     
     # Calculate potential fallback path relative to MO2's base directory (common for Wabbajack)
     # organizer.profilePath() is usually <MO2_Base>/profiles/<ProfileName>
@@ -115,11 +115,11 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
     fallback_path = mo2_base_path / "tools" / "SSEEdit" / "SSEEdit.exe"
 
     if fallback_path.is_file():
-        wrapped_organizer.log(1, f"SkyGen: Found xEdit via Wabbajack-style fallback: {fallback_path}")
+        wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Found xEdit via Wabbajack-style fallback: {fallback_path}")
         return fallback_path, "SSEEdit" # Use a generic MO2 name for this fallback detection
     # --- END FALLBACK LOGIC ---
 
-    wrapped_organizer.log(3, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings or via Wabbajack fallback.")
+    wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: WARNING: No recognized xEdit executable found in MO2 settings or via Wabbajack fallback.")
     if dialog_instance:
         dialog_instance.showWarning("xEdit Not Found", "Could not automatically detect xEdit executable. Please ensure it's added to MO2's executables (named 'SSEEdit', 'TES5Edit', etc.) or located in a standard Wabbajack 'tools' directory.")
     return None
@@ -603,11 +603,11 @@ def generate_and_write_skypatcher_yaml(
         search_keywords = [] # Initialize as empty list if None
 
     log_callback = wrapped_organizer.log # Get log function from wrapped_organizer
-    log_callback(1, f"SkyGen: Starting YAML generation for category '{record_type}' with target '{target_mod_name}'.")
+    log_callback(MO2_LOG_INFO, f"SkyGen: Starting YAML generation for category '{record_type}' with target '{target_mod_name}'.")
 
     base_objects = json_data.get("baseObjects", [])
     if not base_objects:
-        log_callback(2, f"SkyGen: No base objects found in JSON data for category '{record_type}'. Skipping YAML generation.")
+        log_callback(MO2_LOG_WARNING, f"SkyGen: No base objects found in JSON data for category '{record_type}'. Skipping YAML generation.")
         if dialog_instance:
             dialog_instance.showWarning("No Data", f"No relevant data exported from xEdit for category '{record_type}'. No YAML file will be generated.")
         return False
@@ -619,14 +619,14 @@ def generate_and_write_skypatcher_yaml(
     # Use the wrapped_organizer to access original organizer methods
     target_mod_internal_name = dialog_instance._get_internal_mod_name_from_display_name(target_mod_name)
     if not target_mod_internal_name:
-        log_callback(3, f"SkyGen: ERROR: Could not determine internal name for target mod '{target_mod_name}'. Aborting YAML generation.")
+        log_callback(MO2_LOG_WARNING, f"SkyGen: ERROR: Could not determine internal name for target mod '{target_mod_name}'. Aborting YAML generation.")
         if dialog_instance:
             dialog_instance.showError("Mod Resolution Error", f"Could not determine internal plugin name for target mod '{target_mod_name}'. Please ensure it is active and has a primary plugin.")
         return False
     
     target_plugin_filename = dialog_instance._get_plugin_name_from_mod_name(target_mod_name, target_mod_internal_name)
     if not target_plugin_filename:
-        log_callback(3, f"SkyGen: ERROR: Could not determine plugin filename for target mod '{target_mod_name}'. Aborting YAML generation.")
+        log_callback(MO2_LOG_WARNING, f"SkyGen: ERROR: Could not determine plugin filename for target mod '{target_mod_name}'. Aborting YAML generation.")
         if dialog_instance:
             dialog_instance.showError("Mod Resolution Error", f"Could not determine plugin filename for target mod '{target_mod_name}'. Please ensure it is active and has a primary plugin.")
         return False
@@ -667,14 +667,14 @@ def generate_and_write_skypatcher_yaml(
             
             # Skip if FormID or Signature is missing
             if not form_id or not signature:
-                log_callback(2, f"SkyGen: WARNING: Skipping object due to missing FormID or Signature: {obj}")
+                log_callback(MO2_LOG_WARNING, f"SkyGen: WARNING: Skipping object due to missing FormID or Signature: {obj}")
                 continue
 
             # Check for keyword match if keywords are specified and broad swap is NOT enabled
             if search_keywords and not broad_category_swap_enabled:
                 # search_keywords is already a list of strings
                 if not any(kw.lower() in editor_id.lower() for kw in search_keywords):
-                    log_callback(0, f"SkyGen: DEBUG: Skipping {editor_id} due to keyword mismatch (not broad swap).")
+                    log_callback(MO2_LOG_TRACE, f"SkyGen: DEBUG: Skipping {editor_id} due to keyword mismatch (not broad swap).")
                     continue # Skip if no keyword match
 
             # If broad_category_swap_enabled, check for keyword match (if keywords are present)
@@ -687,16 +687,16 @@ def generate_and_write_skypatcher_yaml(
                 # from the original target mod export, regardless of its original signature.
                 # This requires iterating through all target bases to find a matching EditorID.
                 found_target_by_editor_id = None
-                for target_base_obj in wrapped_organizer.dialog_instance.all_exported_target_bases_by_formid.values():
+                for target_base_obj in dialog_instance.all_exported_target_bases_by_formid.values():
                     if target_base_obj.get("EditorID", "").strip() == editor_id:
                         found_target_by_editor_id = target_base_obj
                         break
                 
                 if found_target_by_editor_id:
                     target_form_id_in_target_mod = found_target_by_editor_id["FormID"]
-                    log_callback(0, f"SkyGen: DEBUG: Broad Swap: Matched source '{editor_id}' (FormID: {form_id}) to target '{target_form_id_in_target_mod}' in '{target_plugin_filename}'.")
+                    log_callback(MO2_LOG_TRACE, f"SkyGen: DEBUG: Broad Swap: Matched source '{editor_id}' (FormID: {form_id}) to target '{target_form_id_in_target_mod}' in '{target_plugin_filename}'.")
                 else:
-                    log_callback(0, f"SkyGen: DEBUG: Broad Swap: No matching EditorID '{editor_id}' found in target mod. Skipping '{editor_id}' (FormID: {form_id}).")
+                    log_callback(MO2_LOG_TRACE, f"SkyGen: DEBUG: Broad Swap: No matching EditorID '{editor_id}' found in target mod. Skipping '{editor_id}' (FormID: {form_id}).")
                     continue # Skip if no matching EditorID found in target mod
             else:
                 # Normal mode: use original FormID
@@ -720,22 +720,22 @@ def generate_and_write_skypatcher_yaml(
             try:
                 with open(yaml_filepath, 'w', encoding='utf-8') as f:
                     yaml.dump(yaml_content, f, sort_keys=False, default_flow_style=False, indent=2, Dumper=NoAliasDumper)
-                log_callback(1, f"SkyGen: Generated YAML for '{origin_mod_filename}' at: {yaml_filepath}")
+                log_callback(MO2_LOG_INFO, f"SkyGen: Generated YAML for '{origin_mod_filename}' at: {yaml_filepath}")
                 generated_count += 1
             except Exception as e:
-                log_callback(4, f"SkyGen: ERROR: Failed to write YAML for '{origin_mod_filename}' to {yaml_filepath}: {e}")
+                log_callback(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write YAML for '{origin_mod_filename}' to {yaml_filepath}: {e}")
                 if dialog_instance:
                     dialog_instance.showError("YAML Write Error", f"Failed to write YAML for '{origin_mod_filename}':\n{e}")
         else:
-            log_callback(2, f"SkyGen: No patches generated for '{origin_mod_filename}'. Skipping YAML file creation.")
+            log_callback(MO2_LOG_WARNING, f"SkyGen: No patches generated for '{origin_mod_filename}'. Skipping YAML file creation.")
 
     if generated_count > 0:
-        log_callback(1, f"SkyGen: Successfully generated {generated_count} SkyPatcher YAML file(s).")
+        log_callback(MO2_LOG_INFO, f"SkyGen: Successfully generated {generated_count} SkyPatcher YAML file(s).")
         if dialog_instance:
             dialog_instance.showInformation("SkyPatcher YAML Generation Complete", f"Successfully generated {generated_count} SkyPatcher YAML file(s) in:\n{yaml_configs_dir}")
         return True
     else:
-        log_callback(1, "SkyGen: No SkyPatcher YAML files were generated.")
+        log_callback(MO2_LOG_INFO, "SkyGen: No SkyPatcher YAML files were generated.")
         if dialog_instance:
             dialog_instance.showWarning("No YAML Generated", "No SkyPatcher YAML files were generated. This might be due to no matching records or issues during xEdit export.")
         return False
@@ -746,10 +746,10 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
     Generates BOS INI files from IGPC JSON data.
     """
     log_callback = wrapped_organizer.log
-    log_callback(1, "SkyGen: Starting BOS INI generation.")
+    log_callback(MO2_LOG_INFO, "SkyGen: Starting BOS INI generation.")
 
     if "pluginObjectMapping" not in igpc_data:
-        log_callback(3, "SkyGen: ERROR: Invalid IGPC JSON format. Missing 'pluginObjectMapping'.")
+        log_callback(MO2_LOG_WARNING, "SkyGen: ERROR: Invalid IGPC JSON format. Missing 'pluginObjectMapping'.")
         if dialog_instance:
             dialog_instance.showError("Invalid IGPC JSON", "The provided IGPC JSON file is missing the expected 'pluginObjectMapping' section.")
         return False
@@ -768,28 +768,28 @@ def generate_bos_ini_files(wrapped_organizer: Any, igpc_data: dict, output_folde
                 cleaned_form_id = form_id.replace("0x", "")
                 ini_content.append(f"{cleaned_form_id}")
             else:
-                log_callback(2, f"SkyGen: WARNING: Skipping object in '{plugin_name}' due to missing 'formId': {obj_data}")
+                log_callback(MO2_LOG_WARNING, f"SkyGen: WARNING: Skipping object in '{plugin_name}' due to missing 'formId': {obj_data}")
         
         if len(ini_content) > 2: # Check if any form IDs were added (beyond the header)
             ini_file_path = bos_output_dir / f"BOS_{plugin_name}.ini"
             try:
                 with open(ini_file_path, 'w', encoding='utf-8') as f:
                     f.write("\n".join(ini_content))
-                wrapped_organizer.log(1, f"SkyGen: Generated BOS INI for '{plugin_name}' at: {ini_file_path}")
+                wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Generated BOS INI for '{plugin_name}' at: {ini_file_path}")
                 generated_count += 1
             except Exception as e:
                 dialog_instance.showError("BOS INI Write Error", f"Failed to write BOS INI for '{plugin_name}': {e}")
-                wrapped_organizer.log(3, f"SkyGen: ERROR: Failed to write BOS INI for {plugin_name}: {e}")
+                wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write BOS INI for {plugin_name}: {e}")
         else:
-            log_callback(2, f"SkyGen: No valid object IDs found for '{plugin_name}'. Skipping BOS INI file creation.")
+            log_callback(MO2_LOG_WARNING, f"SkyGen: No valid object IDs found for '{plugin_name}'. Skipping BOS INI file creation.")
 
     if generated_count > 0:
-        wrapped_organizer.log(1, f"SkyGen: Successfully generated {generated_count} BOS INI file(s).")
+        wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Successfully generated {generated_count} BOS INI file(s).")
         if dialog_instance:
             dialog_instance.showInformation("BOS INI Generation Complete", f"Successfully generated {generated_count} BOS INI file(s) in:\n{bos_output_dir}")
         return True
     else:
-        wrapped_organizer.log(1, "SkyGen: No BOS INI files were generated.")
+        wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: No BOS INI files were generated.")
         if dialog_instance:
             dialog_instance.showWarning("No BOS INI Generated", "No BOS INI files were generated. This might be due to empty IGPC data or invalid format.")
         return False
@@ -810,9 +810,9 @@ def clean_temp_files(script_path: Path, ini_path: Optional[Path], log_callback: 
         if f_path and f_path.exists(): # Added check for f_path not being None
             try:
                 f_path.unlink()
-                log_callback(0, f"SkyGen: DEBUG: Deleted temporary file: {f_path}")
+                log_callback(MO2_LOG_TRACE, f"SkyGen: DEBUG: Deleted temporary file: {f_path}")
             except Exception as e:
-                log_callback(2, f"SkyGen: WARNING: Failed to delete temporary file '{f_path}': {e}")
+                log_callback(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to delete temporary file '{f_path}': {e}")
 
 
 # Custom YAML Dumper to prevent aliases
