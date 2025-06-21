@@ -11,7 +11,8 @@ import traceback
 import shutil # Added shutil for file operations
 from collections import defaultdict
 from typing import Optional, Any
-from datetime import datetime # Added datetime import
+# Removed datetime import as make_file_logger is being removed
+
 
 # MODIFIED: Changed QStringList to QByteArray for PyQt6 compatibility
 try:
@@ -61,28 +62,7 @@ from .skygen_constants import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, 
 
 # --- Utility Functions (Global helpers) ---
 
-def make_file_logger(log_path: Path):
-    """
-    Creates a logger function that appends messages to a specified file with timestamps.
-    """
-    # Ensure directory exists before trying to open the file
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    def log(mo2_log_level: int, message: str): # Adopt MO2 log level signature
-        try:
-            # Format message with timestamp and level name
-            level_name = {
-                5: "CRITICAL", 4: "ERROR", 3: "WARNING",
-                2: "INFO", 1: "DEBUG", 0: "TRACE"
-            }.get(mo2_log_level, "UNKNOWN")
-            full_message = f"[{datetime.now().isoformat()}] [{level_name}] {message}"
-            
-            with log_path.open("a", encoding="utf-8") as f:
-                f.write(full_message + "\n")
-        except Exception as e:
-            # Fallback to console print if file logging fails
-            print(f"[SkyGen] CRITICAL ERROR: Failed to write to SkyGen_Debug.log: {e} - Message: {message}")
-    return log
+# Removed make_file_logger as it was not being used and OrganizerWrapper has its own file logging.
 
 
 def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> dict | None:
