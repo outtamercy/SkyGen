@@ -298,6 +298,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
             self.dialog.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot proceed with YAML generation.")
             return
         
+        # This is where the dialog instance is set to hold the exported data
         self.dialog.all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in target_exported_json.get("baseObjects", []) if "FormID" in obj}
 
 
