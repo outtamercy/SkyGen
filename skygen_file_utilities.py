@@ -50,8 +50,9 @@ except ImportError:
         def connect(self, func): pass
 
 
-# Define a constant for max poll time
-MAX_POLL_TIME = 60
+# Define a constant for max poll time (in seconds)
+# Changed to 600 seconds (10 minutes) to match the error message
+MAX_POLL_TIME = 600
 
 # Import MO2_LOG_* constants from skygen_constants
 from .skygen_constants import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_TRACE
@@ -785,6 +786,21 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
     temp_script_path = xedit_edit_scripts_path / script_name
     temp_ini_path = xedit_edit_scripts_path / f"{Path(script_name).stem}.ini"
     
+    # Check for m_INI.pas and m_JSON.pas existence
+    m_ini_path = xedit_edit_scripts_path / "m_INI.pas"
+    m_json_path = xedit_edit_scripts_path / "m_JSON.pas"
+    
+    if not m_ini_path.is_file():
+        dialog.showError("Missing Script Dependency", f"m_INI.pas not found in xEdit's 'Edit Scripts' directory: {m_ini_path}. This file is required for the xEdit script to function. Please ensure it's present.")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Missing m_INI.pas at {m_ini_path}")
+        return None
+
+    if not m_json_path.is_file():
+        dialog.showError("Missing Script Dependency", f"m_JSON.pas not found in xEdit's 'Edit Scripts' directory: {m_json_path}. This file is required for the xEdit script to function. Please ensure it's present.")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Missing m_JSON.pas at {m_json_path}")
+        return None
+
+
     output_json_filename = f"SkyGen_xEdit_Export_{int(time.time())}.json"
     
     mo2_overwrite_path = Path(wrapped_organizer.modsPath()) / "overwrite"
@@ -795,6 +811,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
 
     final_export_json_path = final_output_folder / output_json_filename
 
+    # Temporary files within xEdit's Edit Scripts directory
     temp_script_output_json_path = xedit_edit_scripts_path / f"temp_{output_json_filename}"
     temp_script_log_path = xedit_edit_scripts_path / f"SkyGen_xEdit_Script_Log_{int(time.time())}.txt"
 
@@ -815,7 +832,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         for key, value in script_options.items():
             ini_content += f"{key}={value}\n"
         with open(temp_ini_path, 'w', encoding='utf-8') as f:
-            f.write(ini_content)
+            config.write(f) # Using config.write() to ensure proper INI formatting
         debug_logger(MO2_LOG_DEBUG, f"SkyGen: INI file written to: {temp_ini_path}")
     except Exception as e:
         dialog.showError("INI Write Error", f"Failed to write INI file to '{temp_ini_path}': {e}")
@@ -830,27 +847,18 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
         return None
 
-    process = QProcess(dialog)
-    tool_entry = None
-    for exe in wrapped_organizer.getExecutables().values():
-        if Path(exe.binary()).resolve() == xedit_path.resolve():
-            tool_entry = exe
-            break
-
-    if tool_entry:
-        mo2_exec_name_to_use = tool_entry.displayName()
-        debug_logger(MO2_LOG_INFO, f"SkyGen: Found matching MO2 tool entry: '{mo2_exec_name_to_use}' for path '{xedit_path}'.")
-    else:
-        mo2_exec_name_to_use = xedit_path.stem
-        debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: No registered MO2 tool matched exact path '{xedit_path}'. Attempting launch via filename stem '{mo2_exec_name_to_use}'. VFS may not be active.")
+    # Get the MO2 executable name for xEdit
+    mo2_exec_name_to_use = xedit_mo2_name
 
     xedit_args = [
-        # Removed -D:ExportPath, -D:TargetPlugin, -D:LogPath as they are passed via INI
         f"-script:\"{os.path.normpath(str(temp_script_path))}\"",
+        "-q", # Quiet mode
+        "-autoload", # Automatically load all plugins
         "-IKnowWhatImDoing",
-        "-NoAutoUpdate",
-        "-NoAutoBackup",
-        "-exit"
+        "-allowMasterFilesEdit", # Allows editing of master files
+        "-NoAutoUpdate", # Prevent xEdit from trying to update
+        "-NoAutoBackup", # Prevent xEdit from creating backups
+        "-exit" # Exit xEdit after script execution
     ]
 
     # Add game mode argument based on game_version
@@ -863,11 +871,11 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
     else:
         debug_logger(MO2_LOG_INFO, f"SkyGen: No specific game mode argument for xEdit for game version '{game_version}'. Launching without it.")
 
-    cwd_path = xedit_path.parent / "Edit Scripts"
+    cwd_path = xedit_path.parent # xEdit's main directory as current working directory
     
     if not cwd_path.is_dir():
-        dialog.showError("xEdit Script Path Error", f"xEdit 'Edit Scripts' directory not found at: {cwd_path}. Cannot launch xEdit correctly.")
-        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit 'Edit Scripts' directory not found: {cwd_path}")
+        dialog.showError("xEdit Directory Error", f"xEdit main directory not found at: {cwd_path}. Cannot launch xEdit correctly.")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit main directory not found: {cwd_path}")
         clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
         return None
 
@@ -875,61 +883,47 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
 
     debug_logger(MO2_LOG_INFO, f"SkyGen: Calling MO2's startApplication for '{mo2_exec_name_to_use}' with arguments: {xedit_args} and CWD: {cwd}")
 
-    try:
-        if temp_script_output_json_path.exists():
+    # Clean up previous temporary output files if they exist before launching
+    for temp_f_path in [temp_script_output_json_path, temp_script_log_path]:
+        if temp_f_path.exists():
             try:
-                temp_script_output_json_path.unlink()
-                debug_logger(MO2_LOG_DEBUG, f"SkyGen: Deleted old temporary JSON export file: {temp_script_output_json_path}")
+                temp_f_path.unlink()
+                debug_logger(MO2_LOG_DEBUG, f"SkyGen: Deleted old temporary file: {temp_f_path}")
             except Exception as e:
-                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old temporary JSON export file {temp_script_output_json_path}: {e}. This might cause issues.")
-        if temp_script_log_path.exists():
-            try:
-                temp_script_log_path.unlink()
-                debug_logger(MO2_LOG_DEBUG, f"SkyGen: Deleted old temporary log file: {temp_script_log_path}")
-            except Exception as e:
-                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old temporary log file {temp_script_log_path}: {e}. This might cause issues.")
+                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old temporary file {temp_f_path}: {e}. This might cause issues.")
 
+    try:
+        # Launch xEdit via MO2's startApplication to ensure VFS is active
         app_handle = wrapped_organizer.startApplication(mo2_exec_name_to_use, xedit_args, str(cwd))
 
         if app_handle == 0:
-            dialog.showError("xEdit Launch Failed", f"Failed to launch '{mo2_exec_name_to_use}' via MO2. Please ensure xEdit is added to MO2's executables with the display name '{mo2_exec_name_to_use}' (e.g., 'SSEEdit' or 'TES5VREdit') and check MO2 logs for more details.")
+            dialog.showError("xEdit Launch Failed", f"Failed to launch '{mo2_exec_name_to_use}' via MO2. Please ensure xEdit is added to MO2's executables and check MO2 logs for more details.")
             debug_logger(MO2_LOG_ERROR, f"SkyGen: MO2 startApplication failed to launch xEdit executable '{mo2_exec_name_to_use}'.")
-            return False
-
-        debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit launched with handle: {app_handle}. Waiting for process termination and output file: {temp_script_output_json_path}")
-
-        if not process.waitForFinished(600000): # 10 minutes timeout in ms
-            process.kill()
-            dialog.showError("xEdit Timeout", "xEdit process timed out after 10 minutes. It may be stuck or processing a very large load order.")
-            debug_logger(MO2_LOG_ERROR, "SkyGen: ERROR: xEdit process timed out.")
-            clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
+            clean_temp_files(temp_script_path, temp_ini_path, debug_logger) # Clean up generated script and INI
             return None
 
-        stdout_data = process.readAllStandardOutput()
-        stderr_data = process.readAllStandardError()
-        stdout_str = stdout_data.data().decode('utf-8', errors='replace')
-        stderr_str = stderr_data.data().decode('utf-8', errors='replace')
+        debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit launched with handle: {app_handle}. Polling for output file: {temp_script_output_json_path}")
 
-        if stdout_str:
-            debug_logger(MO2_LOG_DEBUG, f"SkyGen: xEdit STDOUT:\n{stdout_str}")
-        if stderr_str:
-            debug_logger(MO2_LOG_ERROR, f"SkyGen: xEdit STDERR:\n{stderr_str}")
-
-        exit_code = process.exitCode()
-        debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit process finished with exit code: {exit_code}")
-
-        if exit_code != 0:
-            dialog.showError("xEdit Error", f"xEdit finished with errors (Exit Code: {exit_code}). Check MO2 logs and SSEScript_log.txt for details.")
-            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit process failed with exit code {exit_code}.")
+        # Poll for the output JSON file to appear and contain content
+        total_wait_time = 0
+        poll_interval = 1 # Check every 1 second
+        while total_wait_time < MAX_POLL_TIME:
+            if temp_script_output_json_path.is_file() and temp_script_output_json_path.stat().st_size > 0:
+                debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit output file '{temp_script_output_json_path}' found and not empty after {total_wait_time} seconds.")
+                break
+            time.sleep(poll_interval)
+            total_wait_time += poll_interval
+        else: # This block executes if the while loop completes without breaking (i.e., timed out)
+            dialog.showError("xEdit Timeout", f"xEdit process timed out after {MAX_POLL_TIME // 60} minutes. Expected output file '{temp_script_output_json_path}' was not created or remained empty. Check MO2 and xEdit logs.")
+            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit process timed out after {MAX_POLL_TIME} seconds. Output file not found or empty.")
             clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
             return None
         
-        if not temp_script_output_json_path.is_file() or temp_script_output_json_path.stat().st_size == 0:
-            dialog.showError("xEdit Output Error", f"xEdit did not produce the expected temporary output file or it is empty: {temp_script_output_json_path}. Check SSEScript_log.txt for xEdit errors.")
-            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit temporary output JSON missing or empty: {temp_script_output_json_path}")
-            clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
-            return None
+        # At this point, the file exists and has content, or we timed out and returned None.
+        # We don't have direct access to xEdit's exit code or stderr/stdout from startApplication,
+        # but the presence of the output file is the primary success indicator.
 
+        # Move the temporary JSON output to its final destination
         try:
             shutil.move(str(temp_script_output_json_path), str(final_export_json_path))
             debug_logger(MO2_LOG_INFO, f"SkyGen: Moved xEdit JSON output from '{temp_script_output_json_path}' to '{final_export_json_path}'.")
@@ -938,7 +932,9 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
             debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to move xEdit JSON output: {e}")
             return None
         
+        # Also move the temporary log file if it was created
         if temp_script_log_path.is_file() and temp_script_log_path.stat().st_size > 0:
+            # Append a unique identifier to the log file name when moving to final folder
             final_export_log_path = final_output_folder / f"SkyGen_xEdit_Script_Log_{Path(temp_script_log_path).stem.split('_')[-1]}.txt"
             try:
                 shutil.move(str(temp_script_log_path), str(final_export_log_path))
@@ -946,6 +942,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
             except Exception as e:
                 debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to move xEdit script log from '{temp_script_log_path}' to '{final_export_log_path}': {e}.")
         
+        # Clean up temporary Pascal script and INI file
         clean_temp_files(temp_script_path, temp_ini_path, debug_logger)
 
         debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit successfully completed, output saved to: {final_export_json_path}")
@@ -954,7 +951,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
     except Exception as e:
         debug_logger(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Unexpected error launching or running xEdit: {e}\n{traceback.format_exc()}")
         dialog.showError("xEdit Error", f"An unexpected error occurred while trying to run xEdit: {e}. Check MO2 logs for more details.")
-        clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
+        clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path) # Ensure temporary files are cleaned up on unexpected crash
         return None
 
 
@@ -964,11 +961,11 @@ def clean_temp_files(script_path: Path, ini_path: Optional[Path], log_callback: 
     These paths are expected to be *temporary* files within the xEdit/Edit Scripts directory.
     """
     files_to_clean = [script_path]
-    if ini_path:
+    if ini_path: # Only add if it's not None
         files_to_clean.append(ini_path)
-    if output_json_temp_path:
+    if output_json_temp_path: # Renamed parameter for clarity
         files_to_clean.append(output_json_temp_path)
-    if script_log_temp_path:
+    if script_log_temp_path: # Renamed parameter for clarity
         files_to_clean.append(script_log_temp_path)
 
     for f_path in files_to_clean:
