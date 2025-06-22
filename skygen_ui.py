@@ -154,6 +154,14 @@ class OrganizerWrapper:
             self.log(MO2_LOG_ERROR, f"Error in currentGame: {e}")
             return None
 
+    # Added to OrganizerWrapper to access profile information
+    def profile(self):
+        try:
+            return self._organizer.profile()
+        except Exception as e:
+            self.log(MO2_LOG_ERROR, f"Error in profile: {e}")
+            return None
+
 
 # Dummy classes for PyQt6 if not available.
 try:
@@ -490,12 +498,26 @@ class SkyGenToolDialog(QDialog):
         """
         mod_list = self.wrapped_organizer.modList()
         active_mods_for_display = []
-        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Starting mod population for UI dropdowns.") # Keep this general info log
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Starting mod population for UI dropdowns.") 
+
+        # Get the set of enabled mods from the current profile
+        enabled_mods_internal_names = set()
+        try:
+            profile_obj = self.wrapped_organizer._organizer.profile()
+            if profile_obj:
+                enabled_mods_internal_names = set(profile_obj.enabledMods())
+                self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: Found {len(enabled_mods_internal_names)} mods enabled in current profile.")
+            else:
+                self.wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: Could not retrieve active MO2 profile. Mod list might be incomplete.")
+        except Exception as e:
+            self.wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: Error getting enabled mods from profile: {e}")
+
         # Determine if we need to filter for plugins based on current output type selection
         filter_for_plugins = (self.selected_output_type == "SkyPatcher YAML")
 
         for mod_internal_name in mod_list.allMods():
-            if mod_list.state(mod_internal_name) & mobase.ModState.ACTIVE:
+            # Only process mods that are explicitly enabled in the current profile
+            if mod_internal_name in enabled_mods_internal_names:
                 display_name = mod_list.displayName(mod_internal_name)
                 
                 if filter_for_plugins:
@@ -503,12 +525,10 @@ class SkyGenToolDialog(QDialog):
                     plugin_name = self._get_plugin_name_from_mod_name(display_name, mod_internal_name)
                     if plugin_name:
                         active_mods_for_display.append(display_name)
-                        # No TRACE log here, as it might not be visible
                 else:
-                    # If BOS is selected (or no specific filter), add all active mods
+                    # If BOS is selected (or no specific filter), add all enabled mods
                     active_mods_for_display.append(display_name)
-                    # No TRACE log here
-            # No else block for non-active mods here to avoid cluttering logs if not visible
+            # No else block for non-enabled mods here
 
         active_mods_for_display.sort(key=str.lower) # Sort alphabetically
         
@@ -521,7 +541,6 @@ class SkyGenToolDialog(QDialog):
 
         self.target_mod_combo.addItems(active_mods_for_display)
         self.source_mod_combo.addItems(active_mods_for_display)
-
         # Set initial selections if available
         if active_mods_for_display:
             # Attempt to set DynDOLOD Output or similar as default target
