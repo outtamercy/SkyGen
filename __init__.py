@@ -46,37 +46,8 @@ from .skygen_constants import (
     MO2_LOG_DEBUG, MO2_LOG_TRACE
 )
 
-# Ensure necessary PyQt6 modules are imported for the main plugin if still used here,
-# or for dummy QMessageBox if needed for initial checks.
-try:
-    from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog # Import QDialog here
-    from PyQt6.QtGui import QIcon # QIcon is used by the plugin tool directly
-    from PyQt6.QtCore import Qt # Import Qt for window flags
-except ImportError:
-    # Define dummy classes if PyQt6 is not installed, to allow basic script parsing
-    # without crashing, though UI functionality will be absent.
-    print("One or more required PyQt modules are not installed. Please ensure PyQt6 is installed.")
-    class QApplication:
-        def __init__(self, *args, **kwargs): pass
-        def instance(self): return None
-    class QMessageBox:
-        @staticmethod
-        def critical(parent, title, message): print(f"CRITICAL: {title}: {message}")
-        @staticmethod
-        def warning(parent, title, message): print(f"WARNING: {title}: {message}")
-    class QDialog:
-        def __init__(self, *args, **kwargs): pass
-        def setWindowModality(self, modality): pass
-        def exec(self): return 0 # Simulate rejection
-        def show(self): pass
-        def close(self): pass
-        def accept(self): pass
-        def reject(self): pass
-    class QIcon:
-        def __init__(self, *args, **kwargs): pass
-    class Qt:
-        WindowStaysOnTopHint = 0
-        ApplicationModal = 0
+# NO MORE PYQT6 IMPORTS OR DUMMY CLASSES HERE
+# They are handled in skygen_ui.py and skygen_file_utilities.py
 
 
 class SkyGenPlugin(mobase.IPluginTool):
@@ -131,7 +102,6 @@ class SkyGenPlugin(mobase.IPluginTool):
     def url(self):
         return "https://github.com/outtamercy/SkyGen" # Updated URL
 
-    # ADDED THIS METHOD
     def displayName(self): 
         return self.name() # It's common to return the same as name() for display
 
@@ -146,10 +116,9 @@ class SkyGenPlugin(mobase.IPluginTool):
         self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Display method called, showing dialog.")
 
         # Ensure a QApplication exists before creating QDialog
-        if QApplication.instance() is None:
-            QApplication([])
-            self.wrapped_organizer.log(MO2_LOG_DEBUG, "SkyGen: QApplication instance created.")
-        
+        # This check should now be handled within the UI/utilities if needed by their dummy classes
+        # or rely on MO2's main PyQt app being available.
+
         try:
             # Ensure the dialog's mod lists are populated every time it's displayed
             # This is important because MO2's mod list can change while the plugin is open
@@ -163,7 +132,10 @@ class SkyGenPlugin(mobase.IPluginTool):
             # Show the dialog as modal
             result = self.dialog.exec() # Use exec() for modal dialogs
 
-            if result == QDialog.Accepted: # Check against QDialog.Accepted or mobase.QDialog.Accepted (if QDialog imported as mobase.QDialog)
+            # Use QDialog.Accepted directly if it's guaranteed to be imported or part of MO2's API
+            # For robustness, using the numerical value directly is also an option if import is tricky:
+            # if result == 1: # QDialog.Accepted typically maps to 1
+            if result == QDialog.Accepted: 
                 self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Dialog accepted. Processing request.")
                 selected_output_type = self.dialog.selected_output_type
                 
@@ -195,14 +167,16 @@ class SkyGenPlugin(mobase.IPluginTool):
             if self.dialog:
                 self.dialog.showError("Plugin Error", f"An unexpected error occurred: {e}\nCheck the SkyGen debug log for details.")
             else:
+                # If dialog itself failed to create, use QMessageBox directly
                 QMessageBox.critical(None, "Plugin Error", f"An unexpected error occurred during dialog creation: {e}\nCheck the SkyGen debug log for details.")
 
     def _determine_xedit_paths(self):
         """
         Determines and stores the xEdit executable path and MO2 registered name.
-        Called once during init.
+        Called once during __init__.
         """
-        xedit_info = get_xedit_exe_path(self.wrapped_organizer, None) # Pass None for dialog initially
+        # Pass self.dialog here for UI error reporting if xEdit path determination fails
+        xedit_info = get_xedit_exe_path(self.wrapped_organizer, self.dialog)
         if xedit_info:
             self._xedit_exe_path, self._xedit_mo2_name = xedit_info
             self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: xEdit path determined: {self._xedit_exe_path} (MO2 name: {self._xedit_mo2_name})")
@@ -234,5 +208,5 @@ def createPlugin(organizer: mobase.IOrganizer):
     """
     This function is automatically called by MO2 to create an instance of your plugin.
     """
-    return SkyGenPlugin(organizer) # Modified: pass organizer to the constructor
+    return SkyGenPlugin(organizer)
 
