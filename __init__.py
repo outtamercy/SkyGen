@@ -460,3 +460,6 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 search_keywords=keywords
             )
 
+# IMPORTANT: This function MUST be at the global scope for MO2 to find it.
+def createPlugin():
+    return SkyGenGeneratorTool()
