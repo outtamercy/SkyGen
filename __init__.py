@@ -84,26 +84,21 @@ class SkyGenPlugin(mobase.IPluginTool):
     The main plugin class for SkyGen, integrating with Mod Organizer 2.
     """
 
-    def __init__(self):
+    def __init__(self, organizer: mobase.IOrganizer): # Modified: accept organizer here
         super().__init__()
-        self.organizer = None
-        self.wrapped_organizer: Optional[OrganizerWrapper] = None
+        self.organizer = organizer
+        self.wrapped_organizer = OrganizerWrapper(self.organizer) 
         self.dialog: Optional[SkyGenToolDialog] = None
         self._xedit_exe_path: Optional[Path] = None
         self._xedit_mo2_name: str = ""
 
-
-    def init(self, organizer: mobase.IOrganizer):
-        self.organizer = organizer
-        # Explicitly use self.organizer once to satisfy Pylance's unused variable check
-        self.wrapped_organizer = OrganizerWrapper(self.organizer) 
         self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: Organizer object assigned and wrapped.")
 
         # Set up the log file path using the wrapped organizer's method
         log_file_path = Path(self.wrapped_organizer.pluginDataPath()) / "SkyGen" / "skygen_plugin_debug.log"
         self.wrapped_organizer.set_log_file_path(log_file_path) # This call is now a placeholder due to new logging setup.
         
-        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin init called.")
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin __init__ called for initialization.")
         
         # Determine and store xEdit paths early
         self._determine_xedit_paths()
@@ -114,7 +109,8 @@ class SkyGenPlugin(mobase.IPluginTool):
         self.wrapped_organizer.dialog_instance = self.dialog # Set dialog_instance for direct UI error display from wrapper
 
         self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin initialized successfully within MO2.")
-        return True
+        # Removed the redundant 'init' method. All essential setup is now in __init__
+
 
     def name(self):
         return "SkyGen"
@@ -216,7 +212,10 @@ class SkyGenPlugin(mobase.IPluginTool):
         """Translates a string using MO2's translation mechanism."""
         # This assumes mobase.IOrganizer has a qtTr method.
         # If not, it might need to be self.organizer.qtTr(str_, self.name())
-        return self.organizer.qtTr(str_, self.name())
+        # Since organizer is now initialized in __init__, this might need self.organizer check
+        if self.organizer:
+            return self.organizer.qtTr(str_, self.name())
+        return str_ # Fallback if organizer is not available for some reason
 
     def deinit(self):
         """
@@ -231,6 +230,5 @@ def createPlugin(organizer: mobase.IOrganizer):
     """
     This function is automatically called by MO2 to create an instance of your plugin.
     """
-    return SkyGenPlugin(organizer)
-
+    return SkyGenPlugin(organizer) # Modified: pass organizer to the constructor
 
