@@ -511,18 +511,32 @@ class SkyGenToolDialog(QDialog):
 
     def _populate_mods(self):
         """
-        Populates the mod comboboxes with all active mods, regardless of whether they have a plugin.
+        Populates the mod comboboxes with active mods, conditionally filtering for plugins
+        based on the selected output type (SkyPatcher requires plugins, BOS does not).
         """
         mod_list = self.wrapped_organizer.modList()
-        active_mods = []
-        self.wrapped_organizer.log(MO2_LOG_DEBUG, "SkyGen: Starting mod population (including asset-only mods)...")
-        for mod_name in mod_list.allMods():
-            if mod_list.state(mod_name) & mobase.ModState.ACTIVE:
-                display_name = mod_list.displayName(mod_name)
-                active_mods.append(display_name)
-                self.wrapped_organizer.log(MO2_LOG_TRACE, f"SkyGen: Adding active mod '{display_name}' to list (internal name: '{mod_name}').")
+        active_mods_for_display = []
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Starting mod population for UI dropdowns.") # Keep this general info log
+        # Determine if we need to filter for plugins based on current output type selection
+        filter_for_plugins = (self.selected_output_type == "SkyPatcher YAML")
 
-        active_mods.sort(key=str.lower) # Sort alphabetically
+        for mod_internal_name in mod_list.allMods():
+            if mod_list.state(mod_internal_name) & mobase.ModState.ACTIVE:
+                display_name = mod_list.displayName(mod_internal_name)
+                
+                if filter_for_plugins:
+                    # If SkyPatcher is selected, only add mods that have a plugin file
+                    plugin_name = self._get_plugin_name_from_mod_name(display_name, mod_internal_name)
+                    if plugin_name:
+                        active_mods_for_display.append(display_name)
+                        # No TRACE log here, as it might not be visible
+                else:
+                    # If BOS is selected (or no specific filter), add all active mods
+                    active_mods_for_display.append(display_name)
+                    # No TRACE log here
+            # No else block for non-active mods here to avoid cluttering logs if not visible
+
+        active_mods_for_display.sort(key=str.lower) # Sort alphabetically
         
         self.target_mod_combo.clear()
         self.source_mod_combo.clear()
@@ -531,30 +545,30 @@ class SkyGenToolDialog(QDialog):
         self.target_mod_combo.addItem("")
         self.source_mod_combo.addItem("")
 
-        self.target_mod_combo.addItems(active_mods)
-        self.source_mod_combo.addItems(active_mods)
+        self.target_mod_combo.addItems(active_mods_for_display)
+        self.source_mod_combo.addItems(active_mods_for_display)
 
         # Set initial selections if available
-        if active_mods:
+        if active_mods_for_display:
             # Attempt to set DynDOLOD Output or similar as default target
             default_target_mods = ["DynDOLOD Output", "TexGen Output", "MergePlugins", "Smashed Patch"]
             for default_mod in default_target_mods:
-                if default_mod in active_mods:
+                if default_mod in active_mods_for_display:
                     self.target_mod_combo.setCurrentIndex(self.target_mod_combo.findText(default_mod))
                     self.selected_target_mod_name = default_mod
                     break
             
             # If no default target found, set to first mod (if any)
-            if not self.selected_target_mod_name and active_mods:
+            if not self.selected_target_mod_name and active_mods_for_display:
                 self.target_mod_combo.setCurrentIndex(1) # Skip empty string
                 self.selected_target_mod_name = self.target_mod_combo.currentText()
 
             # For source, typically the first active mod alphabetically or specific common source
-            if active_mods:
+            if active_mods_for_display:
                 self.source_mod_combo.setCurrentIndex(1) # Skip empty string
                 self.selected_source_mod_name = self.source_mod_combo.currentText()
         
-        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Mod population complete. Found {len(active_mods)} active mods (including asset-only).")
+        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: UI mod population complete. Found {len(active_mods_for_display)} active mods for display.")
 
 
     def _get_plugin_name_from_mod_name(self, mod_display_name: str, mod_internal_name: str) -> Optional[str]:
@@ -638,6 +652,7 @@ class SkyGenToolDialog(QDialog):
             self.bos_ini_settings_group.setVisible(True)
             self.generate_all_checkbox.setVisible(False) # Hide for BOS INI
             self.wrapped_organizer.log(0, "SkyGen: Output type set to BOS INI.")
+        self._populate_mods() # Re-populate mods based on new filter
         self._save_config() # Save setting when toggled
 
 
