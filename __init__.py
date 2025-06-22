@@ -117,7 +117,7 @@ class SkyGenPlugin(mobase.IPluginTool):
 
     def author(self):
         # Updated author credit
-        return "BoltBot & ms.mayhem"
+        return "BoltBot & Mayhem"
 
     def description(self):
         # Updated description
@@ -129,7 +129,11 @@ class SkyGenPlugin(mobase.IPluginTool):
 
     # Added URL property as per request
     def url(self):
-        return "https://boltbot.app/"
+        return "https://github.com/outtamercy/SkyGen" # Updated URL
+
+    # ADDED THIS METHOD
+    def displayName(self): 
+        return self.name() # It's common to return the same as name() for display
 
     def settings(self):
         return [] # No specific settings to configure via MO2's settings dialog
