@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Optional, Any
 import logging
-import os # Added os import for path manipulation
+import os
 
 # Define the path for the plugin's debug log file
 plugin_log_path = os.path.join(os.path.dirname(__file__), 'skygen_plugin_debug.log')
@@ -38,9 +38,12 @@ from .skygen_file_utilities import (
     safe_launch_xedit, # Using safe_launch_xedit directly
     generate_and_write_skypatcher_yaml,
     generate_bos_ini_files,
-    # clean_temp_files, # Removed as it's handled internally by safe_launch_xedit
-    # get_game_root_from_general_ini, # Not directly used by plugin, but by utilities
-    # Removed write_pas_script_to_xedit import as it's now called internally by safe_launch_xedit
+)
+
+# Import MO2_LOG_* constants from the new constants file
+from .skygen_constants import (
+    MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO,
+    MO2_LOG_DEBUG, MO2_LOG_TRACE
 )
 
 # Ensure necessary PyQt6 modules are imported for the main plugin if still used here,
@@ -86,88 +89,106 @@ class SkyGenPlugin(mobase.IPluginTool):
         self.organizer = None
         self.wrapped_organizer: Optional[OrganizerWrapper] = None
         self.dialog: Optional[SkyGenToolDialog] = None
+        self._xedit_exe_path: Optional[Path] = None
+        self._xedit_mo2_name: str = ""
+
 
     def init(self, organizer: mobase.IOrganizer):
         self.organizer = organizer
         self.wrapped_organizer = OrganizerWrapper(organizer)
-        # Pass the logger instance to the wrapped_organizer
-        self.wrapped_organizer.set_log_file_path(Path(plugin_log_path))
+        # Set up the log file path using the wrapped organizer's method
+        log_file_path = Path(self.wrapped_organizer.pluginDataPath()) / "SkyGen" / "skygen_plugin_debug.log"
+        self.wrapped_organizer.set_log_file_path(log_file_path) # This call is now a placeholder due to new logging setup.
+        
         self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin init called.")
         
         # Determine and store xEdit paths early
         self._determine_xedit_paths()
 
+        # Initialize the dialog here but don't show it yet
+        # Pass the wrapped_organizer to the dialog
+        self.dialog = SkyGenToolDialog(self.wrapped_organizer)
+        self.wrapped_organizer.dialog_instance = self.dialog # Set dialog_instance for direct UI error display from wrapper
+
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin initialized successfully within MO2.")
         return True
 
     def name(self):
         return "SkyGen"
 
     def author(self):
-        return "Your Name/Community"
+        # Updated author credit
+        return "BoltBot & ms.mayhem"
 
     def description(self):
-        return "Automates SkyPatcher YAML and BOS INI generation."
+        # Updated description
+        return "Automate SkyPatcher YAML and BOS INI generation."
 
     def version(self):
-        return mobase.VersionInfo(1, 0, 1, mobase.ReleaseType.FINAL)
+        # Updated version
+        return mobase.VersionInfo(1, 0, 0, mobase.ReleaseType.ALPHA)
+
+    # Added URL property as per request
+    def url(self):
+        return "https://boltbot.app/"
 
     def settings(self):
         return [] # No specific settings to configure via MO2's settings dialog
 
     def display(self):
         """
-        Called when the user clicks the plugin's entry in MO2's Tools menu.
+        This method is called when the user clicks on the tool in MO2.
+        It shows the dialog and handles the generation logic based on user input.
         """
-        skygen_logger.info("SkyGen: Display function called. Showing dialog.")
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Display method called, showing dialog.")
 
         # Ensure a QApplication exists before creating QDialog
         if QApplication.instance() is None:
             QApplication([])
-            skygen_logger.debug("SkyGen: QApplication instance created.")
+            self.wrapped_organizer.log(MO2_LOG_DEBUG, "SkyGen: QApplication instance created.")
         
         try:
-            self.dialog = SkyGenToolDialog(self.wrapped_organizer)
-            self.wrapped_organizer.dialog_instance = self.dialog # Pass dialog instance for direct UI error display
-            self.dialog.setWindowModality(Qt.ApplicationModal) # Make it modal
+            # Ensure the dialog's mod lists are populated every time it's displayed
+            # This is important because MO2's mod list can change while the plugin is open
+            self.dialog._populate_mods()
+            self.dialog._populate_game_versions() # Ensure game versions are correctly set on display
 
-            # Initialize xEdit paths in dialog (if not already determined or if MO2 reload)
+            # Pass determined xEdit paths to the dialog before displaying it
             self.dialog.determined_xedit_exe_path = self._xedit_exe_path
             self.dialog.determined_xedit_executable_name = self._xedit_mo2_name
 
+            # Show the dialog as modal
             result = self.dialog.exec() # Use exec() for modal dialogs
 
-            if result == QDialog.Accepted:
-                skygen_logger.info("SkyGen: Dialog accepted. Processing request.")
+            if result == QDialog.Accepted: # Check against QDialog.Accepted or mobase.QDialog.Accepted (if QDialog imported as mobase.QDialog)
+                self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Dialog accepted. Processing request.")
                 selected_output_type = self.dialog.selected_output_type
                 
                 # Update config with latest determined xEdit paths from dialog before saving
-                self.dialog.determined_xedit_exe_path = self._xedit_exe_path
-                self.dialog.determined_xedit_executable_name = self._xedit_mo2_name
+                # These were already assigned above, but ensuring they are consistent with what's used.
                 self.dialog._save_config()
 
                 if selected_output_type == "SkyPatcher YAML":
                     self.dialog._generate_skypatcher_yaml_internal() # Call the internal generation method
                 elif selected_output_type == "BOS INI":
-                    # For BOS INI, we don't need target mod or category from xEdit export.
-                    # We just need the IGPC JSON path from the UI.
                     igpc_json_file = Path(self.dialog.igpc_json_path)
                     output_folder_path = Path(self.dialog.output_folder_path)
 
                     if not igpc_json_file.is_file():
                         self.dialog.showError("File Not Found", f"IGPC JSON file not found at the specified path: {igpc_json_file}.")
-                        self.wrapped_organizer.log(3, f"SkyGen: IGPC JSON file not found: {igpc_json_file}")
+                        self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: IGPC JSON file not found: {igpc_json_file}")
                         return
 
                     igpc_data = load_json_data(wrapped_organizer=self.wrapped_organizer, file_path=igpc_json_file, description="IGPC JSON", dialog_instance=self.dialog)
                     if igpc_data:
                         generate_bos_ini_files(wrapped_organizer=self.wrapped_organizer, igpc_data=igpc_data, output_folder_path=output_folder_path, dialog_instance=self.dialog)
                     else:
-                        self.wrapped_organizer.log(3, "SkyGen: Failed to load IGPC data. Aborting BOS INI generation.")
+                        self.wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: Failed to load IGPC data. Aborting BOS INI generation.")
             else:
-                self.wrapped_organizer.log(1, "SkyGen: Dialog cancelled by user. No action taken.")
+                self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Dialog cancelled by user. No action taken.")
 
         except Exception as e:
-            skygen_logger.critical(f"SkyGen: CRITICAL ERROR in display function: {e}", exc_info=True)
+            self.wrapped_organizer.log(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL ERROR in display function: {e}", exc_info=True)
             if self.dialog:
                 self.dialog.showError("Plugin Error", f"An unexpected error occurred: {e}\nCheck the SkyGen debug log for details.")
             else:
@@ -181,11 +202,11 @@ class SkyGenPlugin(mobase.IPluginTool):
         xedit_info = get_xedit_exe_path(self.wrapped_organizer, None) # Pass None for dialog initially
         if xedit_info:
             self._xedit_exe_path, self._xedit_mo2_name = xedit_info
-            skygen_logger.info(f"SkyGen: xEdit path determined: {self._xedit_exe_path} (MO2 name: {self._xedit_mo2_name})")
+            self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: xEdit path determined: {self._xedit_exe_path} (MO2 name: {self._xedit_mo2_name})")
         else:
             self._xedit_exe_path = None
             self._xedit_mo2_name = ""
-            skygen_logger.warning("SkyGen: Could not determine xEdit path during plugin initialization.")
+            self.wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: Could not determine xEdit path during plugin initialization.")
 
 
     def __tr(self, str_: str) -> str:
@@ -200,5 +221,12 @@ class SkyGenPlugin(mobase.IPluginTool):
         Ensures the custom debug log file is properly closed.
         """
         self.wrapped_organizer.close_log_file()
-        skygen_logger.info("SkyGen plugin deinitialized.")
+        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin deinitialized.")
+
+# This function is automatically called by MO2 to create an instance of your plugin.
+def createPlugin(organizer: mobase.IOrganizer):
+    """
+    This function is automatically called by MO2 to create an instance of your plugin.
+    """
+    return SkyGenPlugin()
 
