@@ -137,12 +137,13 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
 
     wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
     
-    # Corrected: Access profile directory via wrapped_organizer._organizer.profile().directory()
+    # Corrected: Access profile directory via wrapped_organizer._organizer.profile().absolutePath()
     # Adding a robust check for profile() returning None
     profile_obj = wrapped_organizer._organizer.profile()
     if profile_obj:
-        mo2_base_path = Path(profile_obj.directory()).parent.parent
-        wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Determined MO2 base path via profile directory: {mo2_base_path}")
+        # Use .absolutePath() for MO2 2.5.x versions and newer (previously .directory())
+        mo2_base_path = Path(profile_obj.absolutePath()).parent.parent
+        wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Determined MO2 base path via profile absolutePath: {mo2_base_path}")
     else:
         # Fallback to organizer.basePath() if profile() returns None
         # This typically gives the MO2 installation root directly.
@@ -150,7 +151,7 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
         wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Determined MO2 base path via organizer.basePath() as profile() was None: {mo2_base_path}")
         if not mo2_base_path.is_dir():
             wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: MO2 base path from basePath() is not a directory: {mo2_base_path}")
-            # If both profile().directory() and basePath() fail, something is seriously wrong with MO2 setup.
+            # If both profile().absolutePath() and basePath() fail, something is seriously wrong with MO2 setup.
             dialog_instance.showError("MO2 Path Error", "Could not determine MO2 base path. Please check your Mod Organizer 2 installation and ensure a profile is active.")
             return None
 
