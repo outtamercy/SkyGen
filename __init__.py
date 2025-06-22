@@ -82,6 +82,9 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
     def name(self):
         return "SkyGen"
 
+    def displayName(self): # Added displayName method here
+        return self.name()
+
     def author(self):
         return "Shalom_Neumann"
 
