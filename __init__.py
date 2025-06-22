@@ -383,7 +383,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                             output_folder_path=output_folder_path,
                             record_type=category,
                             broad_category_swap_enabled=broad_category_swap_enabled,
-                            search_keywords=keywords
+                            search_keywords=keywords,
+                            dialog_instance=self.dialog # <--- ADDED THIS LINE
                         )
                         if generated:
                             successful_generations += 1
@@ -457,7 +458,8 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
                 output_folder_path=output_folder_path,
                 record_type=category,
                 broad_category_swap_enabled=broad_category_swap_enabled,
-                search_keywords=keywords
+                search_keywords=keywords,
+                dialog_instance=self.dialog # <--- ADDED THIS LINE
             )
 
 # IMPORTANT: This function MUST be at the global scope for MO2 to find it.
