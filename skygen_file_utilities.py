@@ -498,7 +498,8 @@ def generate_and_write_skypatcher_yaml(
     output_folder_path: Path,
     record_type: str,
     broad_category_swap_enabled: bool,
-    search_keywords: list[str]
+    search_keywords: list[str],
+    dialog_instance: Any # Added dialog_instance
 ) -> bool:
     """
     Generates a SkyPatcher YAML file from the xEdit exported JSON data.
@@ -526,14 +527,14 @@ def generate_and_write_skypatcher_yaml(
     
     if not internal_target_mod_name:
         wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Could not find plugin file for target mod '{target_mod_name}'. Cannot generate YAML.")
-        wrapped_organizer.dialog_instance.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
+        dialog_instance.showError("Target Mod Error", f"Could not determine plugin file for target mod '{target_mod_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
         return False
 
 
     yaml_output = []
     base_objects = json_data.get("baseObjects", [])
 
-    all_exported_target_bases_by_formid = wrapped_organizer.dialog_instance.all_exported_target_bases_by_formid
+    all_exported_target_bases_by_formid = dialog_instance.all_exported_target_bases_by_formid
     
     filtered_source_objects = []
     for obj in base_objects:
@@ -555,7 +556,7 @@ def generate_and_write_skypatcher_yaml(
 
     if not filtered_source_objects:
         wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: No matching objects found for record type '{record_type}' with keywords '{search_keywords}'. No YAML generated for this source.")
-        wrapped_organizer.dialog_instance.showWarning("No Matches", f"No matching objects found for record type '{record_type}' with keywords '{', '.join(search_keywords)}' in source mod. No YAML generated.")
+        dialog_instance.showWarning("No Matches", f"No matching objects found for record type '{record_type}' with keywords '{', '.join(search_keywords)}' in source mod. No YAML generated.")
         return False
 
     for source_obj in filtered_source_objects:
@@ -596,8 +597,11 @@ def generate_and_write_skypatcher_yaml(
             if "FullName" in target_obj and target_obj["FullName"] != source_obj.get("FullName") and not (broad_category_swap_enabled and source_signature != target_signature):
                 yaml_entry["match"]["fullName"] = target_obj["FullName"]
             
-            if "Model" in target_obj and target_obj["Model"] != source_obj.get("Model"):
-                yaml_entry["patch"]["MODL"] = target_obj["Model"]
+            if "Model" in target_obj and target_obj["Model"]: # Check for existence and non-empty string
+                if target_obj["Model"] != source_obj.get("Model"):
+                    yaml_entry["patch"]["MODL"] = target_obj["Model"]
+            elif "Model" in source_obj and not target_obj.get("Model"): # If source has model but target doesn't
+                yaml_entry["patch"]["MODL"] = "" # Explicitly remove model
 
             if "ObjectBounds" in target_obj and target_obj["ObjectBounds"] != source_obj.get("ObjectBounds"):
                 yaml_entry["patch"]["OBND"] = target_obj["ObjectBounds"]
@@ -630,7 +634,7 @@ def generate_and_write_skypatcher_yaml(
                 yaml_entry["patch"]["WRLD"] = f"0x{target_obj['WorldspaceFormID']}~{target_obj['OriginMod']}"
 
             if "WorldspaceName" in target_obj and target_obj["WorldspaceName"] != source_obj.get("WorldspaceName"):
-                 pass
+                 pass # FullName change is implicitly handled by patch above if necessary, no direct WorldspaceName patch needed
 
             if yaml_entry["patch"]:
                 yaml_output.append(yaml_entry)
@@ -663,11 +667,11 @@ def generate_and_write_skypatcher_yaml(
             with open(output_filepath, 'w', encoding='utf-8') as f:
                 yaml.dump(yaml_output, f, sort_keys=False, default_flow_style=False, Dumper=NoAliasDumper)
             wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Successfully generated SkyPatcher YAML to: {output_filepath}")
-            wrapped_organizer.dialog_instance.showInformation("YAML Generated", f"Successfully generated YAML for '{actual_source_mod_display_name}' ({record_type}) to:\n{output_filepath}")
+            dialog_instance.showInformation("YAML Generated", f"Successfully generated YAML for '{actual_source_mod_display_name}' ({record_type}) to:\n{output_filepath}")
             return True
         except Exception as e:
             wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write SkyPatcher YAML to '{output_filepath}': {e}\n{traceback.format_exc()}")
-            wrapped_organizer.dialog_instance.showError("YAML Write Error", f"Failed to write SkyPatcher YAML to '{output_filepath}':\n{e}")
+            dialog_instance.showError("YAML Write Error", f"Failed to write SkyPatcher YAML to '{output_filepath}':\n{e}")
             return False
     else:
         wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: No YAML content generated for record type '{record_type}' from source '{target_mod_name}' and keywords '{search_keywords}'.")
@@ -841,9 +845,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: No registered MO2 tool matched exact path '{xedit_path}'. Attempting launch via filename stem '{mo2_exec_name_to_use}'. VFS may not be active.")
 
     xedit_args = [
-        f"-D:ExportPath=\"{os.path.normpath(str(temp_script_output_json_path))}\"",
-        f"-D:TargetPlugin=\"{target_plugin_name}\"",
-        f"-D:LogPath=\"{os.path.normpath(str(temp_script_log_path))}\"",
+        # Removed -D:ExportPath, -D:TargetPlugin, -D:LogPath as they are passed via INI
         f"-script:\"{os.path.normpath(str(temp_script_path))}\"",
         "-IKnowWhatImDoing",
         "-NoAutoUpdate",
