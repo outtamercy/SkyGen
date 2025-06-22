@@ -31,8 +31,13 @@ except ImportError:
         @staticmethod
         def information(parent, title, message): print(f"INFO: {title}: {message}")
     class QDialog:
+        # Define DialogCode for dummy class to match PyQt6 structure
+        class DialogCode:
+            Accepted = 1 # QDialog.Accepted enum value
+            Rejected = 0 # QDialog.Rejected enum value
+        
         def __init__(self, *args, **kwargs): pass
-        def exec(self): return 0
+        def exec(self): return self.DialogCode.Accepted # Return Accepted by default for dummy
     class QIcon:
         def __init__(self, *args, **kwargs): pass
     class Qt:
@@ -122,7 +127,7 @@ class SkyGenGeneratorTool(mobase.IPluginTool):
         
         result = self.dialog.exec()
 
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted: # Corrected for PyQt6
             self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Dialog accepted by user. Proceeding with generation.")
             
             output_type = self.dialog.selected_output_type
