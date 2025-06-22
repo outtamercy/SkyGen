@@ -95,7 +95,10 @@ class SkyGenPlugin(mobase.IPluginTool):
 
     def init(self, organizer: mobase.IOrganizer):
         self.organizer = organizer
-        self.wrapped_organizer = OrganizerWrapper(organizer)
+        # Explicitly use self.organizer once to satisfy Pylance's unused variable check
+        self.wrapped_organizer = OrganizerWrapper(self.organizer) 
+        self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: Organizer object assigned and wrapped.")
+
         # Set up the log file path using the wrapped organizer's method
         log_file_path = Path(self.wrapped_organizer.pluginDataPath()) / "SkyGen" / "skygen_plugin_debug.log"
         self.wrapped_organizer.set_log_file_path(log_file_path) # This call is now a placeholder due to new logging setup.
@@ -228,5 +231,6 @@ def createPlugin(organizer: mobase.IOrganizer):
     """
     This function is automatically called by MO2 to create an instance of your plugin.
     """
-    return SkyGenPlugin()
+    return SkyGenPlugin(organizer)
+
 
