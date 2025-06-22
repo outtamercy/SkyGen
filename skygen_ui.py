@@ -510,19 +510,17 @@ class SkyGenToolDialog(QDialog):
 
 
     def _populate_mods(self):
-        """Populates the mod comboboxes with active mods."""
+        """
+        Populates the mod comboboxes with all active mods, regardless of whether they have a plugin.
+        """
         mod_list = self.wrapped_organizer.modList()
         active_mods = []
+        self.wrapped_organizer.log(MO2_LOG_DEBUG, "SkyGen: Starting mod population (including asset-only mods)...")
         for mod_name in mod_list.allMods():
             if mod_list.state(mod_name) & mobase.ModState.ACTIVE:
                 display_name = mod_list.displayName(mod_name)
-                # Attempt to get the plugin name associated with the mod
-                plugin_name = self._get_plugin_name_from_mod_name(display_name, mod_name)
-                if plugin_name:
-                    active_mods.append(display_name)
-                    self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found active mod with plugin: {display_name} ({plugin_name})")
-                else:
-                    self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Skipping active mod without detectable plugin: {display_name}")
+                active_mods.append(display_name)
+                self.wrapped_organizer.log(MO2_LOG_TRACE, f"SkyGen: Adding active mod '{display_name}' to list (internal name: '{mod_name}').")
 
         active_mods.sort(key=str.lower) # Sort alphabetically
         
@@ -555,47 +553,54 @@ class SkyGenToolDialog(QDialog):
             if active_mods:
                 self.source_mod_combo.setCurrentIndex(1) # Skip empty string
                 self.selected_source_mod_name = self.source_mod_combo.currentText()
+        
+        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Mod population complete. Found {len(active_mods)} active mods (including asset-only).")
 
 
     def _get_plugin_name_from_mod_name(self, mod_display_name: str, mod_internal_name: str) -> Optional[str]:
         """
         Attempts to find the primary plugin file (.esp, .esm, .esl) for a given mod.
-        Uses organizer.modList().mod().absolutePath() to get the mod's directory.
+        Performs a recursive search within the mod's directory.
         """
-        # Get the IMod object
         mod_obj = self.wrapped_organizer._organizer.modList().getMod(mod_internal_name) 
         if not mod_obj:
-            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' ({mod_internal_name}).")
+            self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not find IMod object for '{mod_display_name}' (Internal: '{mod_internal_name}').")
             return None
 
-        mod_path = Path(mod_obj.absolutePath()) # Use absolutePath from IMod object
+        mod_path = Path(mod_obj.absolutePath()) 
         if not mod_path.is_dir():
-            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Mod directory for '{mod_display_name}' ({mod_internal_name}) not found at: {mod_path}.")
+            self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Mod directory for '{mod_display_name}' not found or not a directory at: {mod_path}.")
             return None
 
-        # Try to find a plugin file within the mod's directory
-        plugin_files = list(mod_path.glob("*.esm")) + \
-                       list(mod_path.glob("*.esp")) + \
-                       list(mod_path.glob("*.esl"))
+        plugin_files = []
+        # Perform recursive glob for plugin files
+        plugin_files.extend(mod_path.glob("**/*.esm"))
+        plugin_files.extend(mod_path.glob("**/*.esp"))
+        plugin_files.extend(mod_path.glob("**/*.esl"))
         
-        # Prefer plugins that exactly match the mod's internal name (case-insensitive)
+        # Filter out plugins that are not active or are simply duplicates in terms of content.
+        # This part requires access to MO2's plugin list and its file IDs.
+        # For simplicity and to avoid over-complicating this utility function, we'll
+        # stick to finding the file and assume MO2 handles the load order/active state
+        # in its main view. The initial filter `mobase.ModState.ACTIVE` already helps.
+
+        # Prioritize plugins that exactly match the mod's internal name (case-insensitive)
         for p_file in plugin_files:
             if p_file.stem.lower() == mod_internal_name.lower():
-                self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found exact plugin match for '{mod_display_name}': {p_file.name}")
+                self.wrapped_organizer.log(MO2_LOG_TRACE, f"SkyGen: DEBUG: Found exact plugin match for '{mod_display_name}': {p_file.name}")
                 return p_file.name
 
         # If no exact stem match, but only one plugin file exists, use that
         if len(plugin_files) == 1:
-            self.wrapped_organizer.log(0, f"SkyGen: DEBUG: Found single plugin file for '{mod_display_name}': {plugin_files[0].name}")
+            self.wrapped_organizer.log(MO2_LOG_TRACE, f"SkyGen: DEBUG: Found single plugin file for '{mod_display_name}': {plugin_files[0].name}")
             return plugin_files[0].name
         elif plugin_files:
             # Fallback: if multiple plugins and no exact match, pick the first one alphabetically.
-            # This might not always be correct for complex mods, but is a reasonable default.
             sorted_plugins = sorted(plugin_files, key=lambda p: p.name.lower())
-            self.wrapped_organizer.log(2, f"SkyGen: WARNING: Multiple plugin files found for '{mod_display_name}' and no exact match. Picking '{sorted_plugins[0].name}'.")
+            self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: INFO: Multiple plugin files found for '{mod_display_name}' and no exact match. Picking '{sorted_plugins[0].name}'.")
             return sorted_plugins[0].name
         
-        self.wrapped_organizer.log(2, f"SkyGen: WARNING: No plugin file (.esp, .esm, .esl) found for active mod '{mod_display_name}' ({mod_internal_name}).")
+        self.wrapped_organizer.log(MO2_LOG_TRACE, f"SkyGen: No plugin file (.esp, .esm, .esl) found after recursive search for mod '{mod_display_name}' (Internal: '{mod_internal_name}').")
         return None
 
 
