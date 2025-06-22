@@ -11,6 +11,7 @@ import shutil
 from collections import defaultdict
 from typing import Optional, Any
 from datetime import datetime
+import logging # Added logging import at the top
 
 # MODIFIED: Changed QStringList to QByteArray for PyQt6 compatibility
 try:
@@ -60,41 +61,14 @@ from .skygen_constants import MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, 
 
 # --- Utility Functions (Global helpers) ---
 
+# The actual logger setup happens in init.py.
+# This function now just retrieves that logger.
 def make_file_logger(log_file_path: Path) -> callable:
     """
-    Creates and returns a logging function that writes messages to a specified file.
-    Messages are prepended with a timestamp and log level name.
+    Returns the pre-configured SkyGen logger instance.
     """
-    # Open the log file in append mode. It will be created if it doesn't exist.
-    # Use a try-except block here to handle potential file opening errors.
-    try:
-        log_file_handle = open(log_file_path, 'a', encoding='utf-8')
-    except Exception as e:
-        print(f"SkyGen: CRITICAL ERROR: Could not open log file '{log_file_path}': {e}")
-        log_file_handle = None # Ensure handle is None if opening fails
-
-    def logger_func(level: int, message: str):
-        if not log_file_handle:
-            # Fallback to print if file handle is not available
-            print(f"[ERROR - No File Log] [{datetime.now().isoformat()}] {message}")
-            return
-
-        level_name = {
-            MO2_LOG_CRITICAL: "CRITICAL", MO2_LOG_ERROR: "ERROR", MO2_LOG_WARNING: "WARNING",
-            MO2_LOG_INFO: "INFO", MO2_LOG_DEBUG: "DEBUG", MO2_LOG_TRACE: "TRACE"
-        }.get(level, "UNKNOWN")
-        
-        full_message = f"[{datetime.now().isoformat()}] [{level_name}] {message}"
-        try:
-            log_file_handle.write(f"{full_message}\n")
-            log_file_handle.flush() # Ensure immediate write to disk
-        except Exception as e:
-            # If writing fails, print to console as a last resort
-            print(f"SkyGen: CRITICAL ERROR: Failed to write to log file '{log_file_path}': {e}. Message: {message}")
-            # Optionally, disable further file logging attempts for this session
-            # This is handled in OrganizerWrapper.log, so no need here.
-
-    return logger_func
+    # Ensure the logger is retrieved correctly based on its name
+    return logging.getLogger('skygen')
 
 
 def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> dict | None:
@@ -849,7 +823,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         for key, value in script_options.items():
             ini_content += f"{key}={value}\n"
         with open(temp_ini_path, 'w', encoding='utf-8') as f:
-            f.write(ini_content) # Corrected: Directly write the string content
+            config.write(f) # Corrected: Directly write the string content
         debug_logger(MO2_LOG_DEBUG, f"SkyGen: INI file written to: {temp_ini_path}")
     except Exception as e:
         dialog.showError("INI Write Error", f"Failed to write INI file to '{temp_ini_path}': {e}")

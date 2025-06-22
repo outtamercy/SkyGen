@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QSize
 from pathlib import Path
 import os
 import json
+import logging # Added logging import
 from typing import Any, Optional, Union
 
 # Import necessary functions from skygen_file_utilities
@@ -20,79 +21,52 @@ from .skygen_file_utilities import (
     generate_bos_ini_files,
 )
 
+# Import MO2_LOG_* constants from skygen_constants
+from .skygen_constants import (
+    MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO,
+    MO2_LOG_DEBUG, MO2_LOG_TRACE
+)
 
-MO2_LOG_CRITICAL = 5
-MO2_LOG_ERROR = 4
-MO2_LOG_WARNING = 3
-MO2_LOG_INFO = 2
-MO2_LOG_DEBUG = 1
-MO2_LOG_TRACE = 0
 
 class OrganizerWrapper:
     """
     A wrapper class for the mobase.IOrganizer interface to handle logging.
     """
     def __init__(self, organizer: 'mobase.IOrganizer'):
+        # No super().__init__() here as OrganizerWrapper does not inherit from QObject or similar PyQt classes
         self._organizer = organizer
-        self._log_file_path: Optional[Path] = None
-        self._log_file_handle: Optional[Any] = None
-        self._log_initialized = False
-        self.dialog_instance: Optional[Any] = None # Added for logging UI errors directly
-        # ... other initialization ...
+        self.dialog_instance: Optional[Any] = None
+        self._logger = logging.getLogger('skygen') # Get the pre-configured logger
 
     def set_log_file_path(self, path: Path):
-        self._log_file_path = path
-        # Ensure directory exists
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._log_file_handle = open(path, 'a', encoding='utf-8')
-            self._log_initialized = True
-            self.log(MO2_LOG_INFO, f"SkyGen: Log file initialized at: {path}")
-        except Exception as e:
-            # Fallback if file logging fails
-            print(f"SkyGen: ERROR: Failed to open log file {path}: {e}")
-            self._log_file_handle = None
-            self._log_initialized = False
+        # With the new logging setup, the FileHandler is configured in init.py
+        # and manages the file. This method can now be simplified or removed if not strictly needed.
+        # For now, we'll keep it as a placeholder to avoid breaking existing calls.
+        self._logger.info(f"SkyGen: (Wrapper) Log file path set to: {path}. Logging handled by main logger setup.")
+        # No need to open/close file handles here.
 
     def log(self, mo2_log_level: int, message: str):
-        full_message = f"[{self.get_level_name(mo2_log_level)}] {message}"
-        
-        # Log to custom debug file
-        if self._log_file_handle and self._log_initialized:
-            try:
-                self._log_file_handle.write(f"{full_message}\n")
-                self._log_file_handle.flush() # Ensure immediate write
-            except Exception as e:
-                # Fallback if writing to log file fails
-                print(f"SkyGen: ERROR: Failed to write to log file: {e}")
-                self._log_file_handle = None # Disable further attempts for this session
-        else:
-            # Fallback to console print if custom log file is not initialized
-            print(full_message)
-
+        # Map MO2 log levels to Python logging levels
+        log_level_map = {
+            MO2_LOG_CRITICAL: logging.CRITICAL,
+            MO2_LOG_ERROR: logging.ERROR,
+            MO2_LOG_WARNING: logging.WARNING,
+            MO2_LOG_INFO: logging.INFO,
+            MO2_LOG_DEBUG: logging.DEBUG,
+            MO2_LOG_TRACE: logging.DEBUG # Map TRACE to DEBUG for Python logger
+        }
+        python_log_level = log_level_map.get(mo2_log_level, logging.INFO)
+        self._logger.log(python_log_level, message)
 
     def close_log_file(self):
-        if self._log_file_handle:
-            self.log(MO2_LOG_INFO, "SkyGen: Closing debug log file.")
-            self._log_file_handle.close()
-            self._log_file_handle = None
-            self._log_initialized = False
+        # With FileHandler managing the file, explicit close here is not strictly necessary
+        # unless we want to remove the handler from the logger.
+        self._logger.info("SkyGen: (Wrapper) Close log file called. Main logger handles file lifecycle.")
+        # If you wanted to remove the handler, you'd do it here, but it's usually not needed
+        # unless the plugin is dynamically loaded/unloaded multiple times without MO2 restart.
+        # For now, no action needed.
 
-    def get_level_name(self, level: int) -> str:
-        if level == MO2_LOG_CRITICAL:
-            return "CRITICAL"
-        if level == MO2_LOG_ERROR:
-            return "ERROR"
-        if level == MO2_LOG_WARNING:
-            return "WARNING"
-        if level == MO2_LOG_INFO:
-            return "INFO"
-        if level == MO2_LOG_DEBUG:
-            return "DEBUG"
-        if level == MO2_LOG_TRACE:
-            return "TRACE"
-        return "UNKNOWN"
-    
+
     def pluginList(self):
         try:
             return self._organizer.pluginList()
