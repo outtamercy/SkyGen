@@ -137,7 +137,8 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog_instance: Any) -> tuple[Pa
 
     wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: xEdit not found in MO2's registered executables. Attempting Wabbajack-style fallback.")
     
-    mo2_base_path = Path(wrapped_organizer.profilePath()).parent.parent
+    # Corrected: Access profile directory via wrapped_organizer._organizer.profile().directory()
+    mo2_base_path = Path(wrapped_organizer._organizer.profile().directory()).parent.parent
     fallback_path = mo2_base_path / "tools" / "SSEEdit" / "SSEEdit.exe"
 
     if fallback_path.is_file():
@@ -832,7 +833,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         for key, value in script_options.items():
             ini_content += f"{key}={value}\n"
         with open(temp_ini_path, 'w', encoding='utf-8') as f:
-            config.write(f) # Using config.write() to ensure proper INI formatting
+            f.write(ini_content) # Corrected: Directly write the string content
         debug_logger(MO2_LOG_DEBUG, f"SkyGen: INI file written to: {temp_ini_path}")
     except Exception as e:
         dialog.showError("INI Write Error", f"Failed to write INI file to '{temp_ini_path}': {e}")
