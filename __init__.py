@@ -88,7 +88,7 @@ class SkyGenPlugin(mobase.IPluginTool):
 
     def author(self):
         # Updated author credit
-        return "BoltBot & Mayhem"
+        return "BoltBot & Mayhem" # Changed from ms.mayhem to Mayhem
 
     def description(self):
         # Updated description
@@ -204,9 +204,12 @@ class SkyGenPlugin(mobase.IPluginTool):
         self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin deinitialized.")
 
 # This function is automatically called by MO2 to create an instance of your plugin.
-def createPlugin(organizer: mobase.IOrganizer):
+def createPlugin(organizer): # <--- CRUCIAL CHANGE APPLIED HERE: REMOVED TYPE HINT
     """
     This function is automatically called by MO2 to create an instance of your plugin.
+    It MUST accept the 'organizer' argument.
     """
+    # Use the logger defined at the top of the file
+    skygen_logger.info("SkyGen Plugin: createPlugin function called with organizer.")
     return SkyGenPlugin(organizer)
 
