@@ -55,7 +55,7 @@ class SkyGenPlugin(mobase.IPluginTool):
     The main plugin class for SkyGen, integrating with Mod Organizer 2.
     """
 
-    def __init__(self, organizer: mobase.IOrganizer): # Modified: accept organizer here
+    def __init__(self, organizer): # Modified: accept organizer here
         super().__init__()
         self.organizer = organizer
         self.wrapped_organizer = OrganizerWrapper(self.organizer) 
@@ -135,7 +135,10 @@ class SkyGenPlugin(mobase.IPluginTool):
             # Use QDialog.Accepted directly if it's guaranteed to be imported or part of MO2's API
             # For robustness, using the numerical value directly is also an option if import is tricky:
             # if result == 1: # QDialog.Accepted typically maps to 1
-            if result == QDialog.Accepted: 
+            # Note: QDialog is imported in skygen_ui.py and dummy-defined if not available.
+            # Here, we need to ensure QDialog.Accepted is accessible.
+            # Since mobase.QDialog.Accepted is used below in the original code, we'll revert to that.
+            if result == mobase.QDialog.Accepted:
                 self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: Dialog accepted. Processing request.")
                 selected_output_type = self.dialog.selected_output_type
                 
@@ -144,7 +147,218 @@ class SkyGenPlugin(mobase.IPluginTool):
                 self.dialog._save_config()
 
                 if selected_output_type == "SkyPatcher YAML":
-                    self.dialog._generate_skypatcher_yaml_internal() # Call the internal generation method
+                    # Call the refactored method in the dialog to get all parameters
+                    params = self.dialog._generate_skypatcher_yaml_internal()
+                    
+                    if not params: # If parameter gathering failed (e.g., due to missing input)
+                        self.wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: Parameter gathering for YAML generation failed. Aborting.")
+                        return # Exit the display method
+
+                    # Extract parameters for clarity
+                    target_mod_display_name = params["target_mod_display_name"]
+                    source_mod_display_name = params["source_mod_display_name"]
+                    category = params["category"]
+                    keywords = params["keywords"] # This is now a list
+                    broad_category_swap_enabled = params["broad_category_swap_enabled"]
+                    output_folder_path = params["output_folder_path"]
+                    game_mode_flag = params["game_mode_flag"]
+                    xedit_exe_path = params["xedit_exe_path"]
+                    xedit_executable_name = params["xedit_executable_name"]
+                    xedit_script_filename = params["xedit_script_filename"]
+                    target_plugin_filename = params["target_plugin_filename"]
+                    generate_all = params["generate_all"]
+                    all_exported_target_bases_by_formid = params["all_exported_target_bases_by_formid"]
+
+                    # Export ALL data from the Target Mod first (only once), regardless of generate_all
+                    self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Exporting all data from Target Mod '{target_mod_display_name}'...")
+                    
+                    target_export_script_options = {
+                        "TargetPlugin": target_plugin_filename,
+                        "TargetCategory": "", # Empty string to export all categories
+                        "Keywords": "",
+                        "BroadCategorySwap": "false"
+                    }
+
+                    xedit_output_path_target_all = safe_launch_xedit(
+                        wrapped_organizer=self.wrapped_organizer, # Pass wrapped_organizer
+                        dialog=self.dialog,
+                        xedit_path=xedit_exe_path,
+                        xedit_mo2_name=xedit_executable_name,
+                        script_name=xedit_script_filename,
+                        game_version=game_mode_flag,
+                        script_options=target_export_script_options,
+                        debug_logger=self.wrapped_organizer.log
+                    )
+                    
+                    if not xedit_output_path_target_all:
+                        self.wrapped_organizer.log(MO2_LOG_ERROR, "SkyGen: ERROR: Failed to export target mod data. Aborting YAML generation.")
+                        self.dialog.showError("xEdit Export Failed", "Failed to export data from the Target Mod. Check xEdit logs for details.")
+                        return
+
+                    target_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_target_all, "Target Mod xEdit Export", self.dialog)
+                    
+                    # Clean up the output JSON from target export after loading
+                    try:
+                        xedit_output_path_target_all.unlink()
+                        self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Cleaned up target export JSON: {xedit_output_path_target_all}")
+                    except Exception as e:
+                        self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to delete target export JSON '{xedit_output_path_target_all}': {e}")
+
+
+                    if not target_exported_json or "baseObjects" not in target_exported_json:
+                        self.wrapped_organizer.log(MO2_LOG_ERROR, "SkyGen: ERROR: Target mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
+                        self.dialog.showError("JSON Parse Error", "Target mod xEdit export JSON is empty or malformed. Cannot proceed with YAML generation.")
+                        return
+                    
+                    # Store for use in generate_and_write_skypatcher_yaml
+                    self.dialog.all_exported_target_bases_by_formid = {obj["FormID"]: obj for obj in target_exported_json.get("baseObjects", []) if "FormID" in obj}
+
+
+                    if generate_all:
+                        self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen: 'Generate All' selected. Processing all compatible source mods.")
+                        all_mods = self.organizer.modList().allMods() # Access original organizer
+                        successful_generations = 0
+                        
+                        # Filter out target mod and game master files from source mods for 'all' generation
+                        source_mods_to_process = []
+                        for mod_name_internal in all_mods:
+                            if self.organizer.modList().state(mod_name_internal) & mobase.ModState.ACTIVE:
+                                mod_display_name = self.organizer.modList().displayName(mod_name_internal)
+                                if mod_display_name == target_mod_display_name: # Don't process target mod as source
+                                    continue
+                                
+                                # Exclude master files (.esm, .esl) as sources unless specifically requested
+                                source_plugin_candidate = self.dialog._get_plugin_name_from_mod_name(mod_display_name, mod_name_internal)
+                                if source_plugin_candidate and not (source_plugin_candidate.lower().endswith(".esm") or source_plugin_candidate.lower().endswith(".esl")):
+                                    source_mods_to_process.append((mod_display_name, mod_name_internal, source_plugin_candidate))
+                                else:
+                                    self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Skipping mod '{mod_display_name}' (internal: {mod_name_internal}) as it's a master file or has no main plugin.")
+
+                        if not source_mods_to_process:
+                            self.dialog.showWarning("No Source Mods", "No suitable source mods found for 'Generate All'. Skipping.")
+                            self.wrapped_organizer.log(MO2_LOG_WARNING, "SkyGen: No suitable source mods found for 'Generate All'.")
+                            return
+
+                        self.dialog.showInformation("Starting Batch Generation", f"Generating YAMLs for compatible source mods against target mod '{target_mod_display_name}' for category '{category}'. This may take some time...")
+
+                        for current_source_mod_display_name, current_source_mod_internal_name, source_mod_plugin_filename in source_mods_to_process:
+                            self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Processing source mod: '{current_source_mod_display_name}' ({source_mod_plugin_filename})...")
+                            
+                            source_export_script_options = {
+                                "TargetPlugin": source_mod_plugin_filename, # This is the plugin we're extracting data FROM
+                                "TargetCategory": category,
+                                "Keywords": ','.join(keywords),
+                                "BroadCategorySwap": str(broad_category_swap_enabled).lower()
+                            }
+                            
+                            # Run xEdit export for the current source mod and specific category
+                            xedit_output_path_source = safe_launch_xedit(
+                                wrapped_organizer=self.wrapped_organizer, # Pass wrapped_organizer
+                                dialog=self.dialog,
+                                xedit_path=xedit_exe_path,
+                                xedit_mo2_name=xedit_executable_name,
+                                script_name=xedit_script_filename,
+                                game_version=game_mode_flag,
+                                script_options=source_export_script_options,
+                                debug_logger=self.wrapped_organizer.log
+                            )
+                            
+                            if xedit_output_path_source:
+                                source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {current_source_mod_display_name}", dialog_instance=self.dialog)
+                                
+                                # Clean up the output JSON from source export after loading
+                                try:
+                                    xedit_output_path_source.unlink()
+                                    self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Cleaned up source export JSON: {xedit_output_path_source}")
+                                except Exception as e:
+                                    self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to delete source export JSON '{xedit_output_path_source}': {e}")
+                                
+                                if source_exported_json and "baseObjects" in source_exported_json:
+                                    generated = generate_and_write_skypatcher_yaml(
+                                        wrapped_organizer=self.wrapped_organizer,
+                                        json_data=source_exported_json, # Pass the entire json_data with 'baseObjects'
+                                        target_mod_name=target_mod_display_name, # This is display name, will be converted internally in generate_and_write_skypatcher_yaml
+                                        output_folder_path=output_folder_path,
+                                        record_type=category,
+                                        broad_category_swap_enabled=broad_category_swap_enabled,
+                                        search_keywords=keywords, # Pass keywords for filtering in YAML generation
+                                        dialog_instance=self.dialog
+                                    )
+                                    if generated:
+                                        successful_generations += 1
+                                else:
+                                    self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: xEdit export JSON for '{current_source_mod_display_name}' is empty or malformed. Skipping YAML generation.")
+                            else:
+                                self.wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: xEdit export failed for source mod '{current_source_mod_display_name}'. Skipping YAML generation.")
+
+                        self.dialog.showInformation("Batch Generation Complete", f"Successfully generated {successful_generations} YAML file(s).")
+                        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Batch YAML generation complete. {successful_generations} files generated.")
+
+                    else: # Single YAML Generation
+                        if not source_mod_display_name:
+                            self.dialog.showError("Input Error", "Please select a Source Mod for single YAML generation.")
+                            self.wrapped_organizer.log(MO2_LOG_ERROR, "SkyGen: Source Mod not selected for single YAML generation.")
+                            return
+
+                        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Generating single YAML for '{source_mod_display_name}' targeting '{target_mod_display_name}' for category '{category}'...")
+
+                        source_plugin_filename = self.dialog._get_plugin_name_from_mod_name(source_mod_display_name, self.dialog._get_internal_mod_name_from_display_name(source_mod_display_name))
+                        if not source_plugin_filename:
+                            self.dialog.showError("Source Mod Error", f"Could not determine plugin file for source mod '{source_mod_display_name}'. Please ensure it has a .esp/.esm/.esl file and is active.")
+                            self.wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: Source mod '{source_mod_display_name}' has no primary plugin. Aborting YAML generation.")
+                            return
+
+                        # 2. Export data from the Source Mod for the specific category
+                        self.wrapped_organizer.log(MO2_LOG_INFO, f"SkyGen: Exporting data from Source Mod: {source_mod_display_name} for category {category}...")
+                        
+                        source_export_script_options = {
+                            "TargetPlugin": source_plugin_filename, # This is the plugin we're extracting data FROM
+                            "TargetCategory": category,
+                            "Keywords": ','.join(keywords),
+                            "BroadCategorySwap": str(broad_category_swap_enabled).lower()
+                        }
+
+                        xedit_output_path_source = safe_launch_xedit(
+                            wrapped_organizer=self.wrapped_organizer, # Pass wrapped_organizer
+                            dialog=self.dialog,
+                            xedit_path=xedit_exe_path,
+                            xedit_mo2_name=xedit_executable_name,
+                            script_name=xedit_script_filename,
+                            game_version=game_mode_flag,
+                            script_options=source_export_script_options,
+                            debug_logger=self.wrapped_organizer.log
+                        )
+                        
+                        if not xedit_output_path_source:
+                            self.wrapped_organizer.log(MO2_LOG_ERROR, "SkyGen: ERROR: Failed to export source mod data. Aborting YAML generation.")
+                            self.dialog.showError("xEdit Export Failed", "Failed to export data from the Source Mod. Check xEdit logs for details.")
+                            return
+
+                        source_exported_json = load_json_data(self.wrapped_organizer, xedit_output_path_source, description=f"xEdit Export for {source_mod_display_name}", dialog_instance=self.dialog)
+                        
+                        # Clean up the output JSON from source export after loading
+                        try:
+                            xedit_output_path_source.unlink()
+                            self.wrapped_organizer.log(MO2_LOG_DEBUG, f"SkyGen: DEBUG: Cleaned up source export JSON: {xedit_output_path_source}")
+                        except Exception as e:
+                            self.wrapped_organizer.log(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to delete source export JSON '{xedit_output_path_source}': {e}")
+                        
+                        if not source_exported_json or "baseObjects" not in source_exported_json:
+                            self.wrapped_organizer.log(MO2_LOG_ERROR, "SkyGen: ERROR: Source mod xEdit export JSON is empty or malformed. Aborting YAML generation.")
+                            self.dialog.showError("JSON Parse Error", "Source mod xEdit export JSON is empty or malformed. Cannot generate YAML.")
+                            return
+
+                        # 3. Generate and write the YAML
+                        generate_and_write_skypatcher_yaml(
+                            wrapped_organizer=self.wrapped_organizer,
+                            json_data=source_exported_json, # Pass the entire json_data with 'baseObjects'
+                            target_mod_name=target_mod_display_name,
+                            output_folder_path=output_folder_path,
+                            record_type=category,
+                            broad_category_swap_enabled=broad_category_swap_enabled,
+                            search_keywords=keywords, # Pass keywords for filtering in YAML generation
+                            dialog_instance=self.dialog
+                        )
                 elif selected_output_type == "BOS INI":
                     igpc_json_file = Path(self.dialog.igpc_json_path)
                     output_folder_path = Path(self.dialog.output_folder_path)
@@ -168,6 +382,11 @@ class SkyGenPlugin(mobase.IPluginTool):
                 self.dialog.showError("Plugin Error", f"An unexpected error occurred: {e}\nCheck the SkyGen debug log for details.")
             else:
                 # If dialog itself failed to create, use QMessageBox directly
+                # QApplication is still needed if QMessageBox is used without a parent.
+                # Re-adding a basic QApplication check if not already handled by MO2's env.
+                # If MO2 guarantees a QApplication, this can be removed.
+                # Given MO2 is a Qt app, QApplication.instance() should usually exist.
+                # We'll just rely on the try/except for the QMessageBox as a fallback.
                 QMessageBox.critical(None, "Plugin Error", f"An unexpected error occurred during dialog creation: {e}\nCheck the SkyGen debug log for details.")
 
     def _determine_xedit_paths(self):
@@ -204,7 +423,7 @@ class SkyGenPlugin(mobase.IPluginTool):
         self.wrapped_organizer.log(MO2_LOG_INFO, "SkyGen plugin deinitialized.")
 
 # This function is automatically called by MO2 to create an instance of your plugin.
-def createPlugin(organizer): # <--- CRUCIAL CHANGE APPLIED HERE: REMOVED TYPE HINT
+def createPlugin(organizer):
     """
     This function is automatically called by MO2 to create an instance of your plugin.
     It MUST accept the 'organizer' argument.
@@ -212,4 +431,3 @@ def createPlugin(organizer): # <--- CRUCIAL CHANGE APPLIED HERE: REMOVED TYPE HI
     # Use the logger defined at the top of the file
     skygen_logger.info("SkyGen Plugin: createPlugin function called with organizer.")
     return SkyGenPlugin(organizer)
-
