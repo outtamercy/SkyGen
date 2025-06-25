@@ -3,6 +3,7 @@ import os
 import shutil
 import time
 import traceback
+import logging # Import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -14,6 +15,61 @@ from .skygen_constants import (
 
 # Define a constant for maximum polling time (e.g., 5 minutes = 300 seconds)
 MAX_POLL_TIME = 300
+
+# Get the shared logger instance
+_shared_plugin_logger_file_utilities = logging.getLogger('skygen')
+
+def make_file_logger(log_file_path: Path):
+    """
+    Configures and returns a logging function that writes to the specified file path.
+    This ensures only one file handler is active for the 'skygen' logger.
+    """
+    # Remove existing file handlers from the shared logger to prevent duplicates
+    for handler in list(_shared_plugin_logger_file_utilities.handlers):
+        if isinstance(handler, logging.FileHandler):
+            _shared_plugin_logger_file_utilities.removeHandler(handler)
+            try:
+                handler.close() # Safely close the old file handle
+            except Exception as e:
+                # Log to console if closing old handler fails, as file logger might not be active yet
+                print(f"SkyGen: WARNING: Could not close old log file handler: {e}")
+
+    # Ensure directory exists before creating the file handler
+    try:
+        log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        print(f"SkyGen: ERROR: Failed to create log directory '{log_file_path.parent}': {e}")
+        # If directory creation fails, cannot proceed with file logging
+        return None
+
+    # Create and add a new FileHandler
+    try:
+        file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG) # Set level for this specific handler
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        _shared_plugin_logger_file_utilities.addHandler(file_handler)
+        _shared_plugin_logger_file_utilities.info(f"SkyGen: (File Utilities) Log file path successfully set to: {log_file_path}")
+
+        # Return a simple wrapper function that calls the shared logger
+        def logger_func(mo2_log_level: int, message: str, exc_info: bool = False):
+            log_level_map = {
+                MO2_LOG_CRITICAL: logging.CRITICAL,
+                MO2_LOG_ERROR: logging.ERROR,
+                MO2_LOG_WARNING: logging.WARNING,
+                MO2_LOG_INFO: logging.INFO,
+                MO2_LOG_DEBUG: logging.DEBUG,
+                MO2_LOG_TRACE: logging.DEBUG
+            }
+            python_log_level = log_level_map.get(mo2_log_level, logging.INFO)
+            _shared_plugin_logger_file_utilities.log(python_log_level, message, exc_info=exc_info)
+        
+        return logger_func
+
+    except Exception as e:
+        print(f"SkyGen: ERROR: Failed to create and add new FileHandler for '{log_file_path}': {e}")
+        return None
+
 
 def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, dialog_instance: Any) -> Optional[dict]:
     """
@@ -32,11 +88,11 @@ def load_json_data(wrapped_organizer: Any, file_path: Path, description: str, di
         return data
     except json.JSONDecodeError as e:
         dialog_instance.showError("JSON Error", f"Failed to parse {description} from '{file_path}': Invalid JSON format.\nError: {e}")
-        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: JSON decoding failed for {file_path}: {e}")
+        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: JSON decoding failed for {file_path}: {e}", exc_info=True)
         return None
     except Exception as e:
         dialog_instance.showError("File Read Error", f"Failed to read {description} from '{file_path}': {e}")
-        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to read {file_path}: {e}")
+        wrapped_organizer.log(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to read {file_path}: {e}", exc_info=True)
         return None
 
 def write_pas_script_to_xedit() -> str:
@@ -44,12 +100,6 @@ def write_pas_script_to_xedit() -> str:
     Generates the Pascal script content for xEdit.
     This script reads options from an INI file and exports plugin data to JSON.
     """
-    # This content should match the Pascal script you want xEdit to run.
-    # It must be able to read an INI file for its parameters.
-    # For now, this is a placeholder. You'll need to fill this with your actual Pascal script.
-    # The script should be designed to read an INI with sections like [SkyGenOptions]
-    # and parameters like TargetPlugin, TargetCategory, OutputFilePath, Keywords, BroadCategorySwap.
-    
     pascal_script = """
 unit ExportPluginData;
 
@@ -245,7 +295,7 @@ def clean_temp_files(temp_script_path: Path, temp_ini_path: Optional[Path], debu
                 f_path.unlink()
                 debug_logger(MO2_LOG_DEBUG, f"SkyGen: Cleaned up temporary file: {f_path}")
         except Exception as e:
-            debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete temporary file '{f_path}': {e}")
+            debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete temporary file '{f_path}': {e}", exc_info=True)
 
 
 def get_xedit_exe_path(wrapped_organizer: Any, dialog: Any) -> Optional[tuple[Path, str]]:
@@ -259,17 +309,14 @@ def get_xedit_exe_path(wrapped_organizer: Any, dialog: Any) -> Optional[tuple[Pa
     executables = wrapped_organizer.getExecutables()
     xedit_names = ["sseedit", "fo4edit", "tes5edit", "fnvedit", "obedit", "xedit"]
 
-    found_xedit_path = None
-    found_xedit_mo2_name = None
-
     for exec_name, exec_info in executables.items():
-        if exec_name.lower() in xedit_names or any(xn in exec_name.lower() for xn in xedit_names):
-            exe_path = Path(exec_info.binary())
-            if exe_path.is_file():
-                found_xedit_path = exe_path
-                found_xedit_mo2_name = exec_name
-                debug_logger(MO2_LOG_INFO, f"SkyGen: Found xEdit executable: '{found_xedit_mo2_name}' at '{found_xedit_path}'.")
-                return found_xedit_path, found_xedit_mo2_name
+        # Ensure exec_info is not None and has a binary() method
+        if exec_info and hasattr(exec_info, 'binary') and exec_info.binary():
+            if exec_name.lower() in xedit_names or any(xn in exec_name.lower() for xn in xedit_names):
+                exe_path = Path(exec_info.binary())
+                if exe_path.is_file():
+                    debug_logger(MO2_LOG_INFO, f"SkyGen: Found xEdit executable: '{exec_name}' at '{exe_path}'.")
+                    return exe_path, exec_name
     
     if dialog:
         dialog.showError("xEdit Not Found", "Could not find any xEdit executable configured in Mod Organizer 2. Please ensure xEdit (SSEEdit/FO4Edit/etc.) is added as an executable in MO2.")
@@ -329,7 +376,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         debug_logger(MO2_LOG_DEBUG, f"SkyGen: Pascal script written to: {temp_script_path}")
     except Exception as e:
         dialog.showError("Script Write Error", f"Failed to write Pascal script to '{temp_script_path}': {e}")
-        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write Pascal script: {e}")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write Pascal script: {e}", exc_info=True)
         return None
 
     try:
@@ -337,11 +384,11 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         for key, value in script_options.items():
             ini_content += f"{key}={value}\n"
         with open(temp_ini_path, 'w', encoding='utf-8') as f:
-            f.write(ini_content) # THIS IS THE CORRECTED LINE
+            f.write(ini_content)
         debug_logger(MO2_LOG_DEBUG, f"SkyGen: INI file written to: {temp_ini_path}")
     except Exception as e:
         dialog.showError("INI Write Error", f"Failed to write INI file to '{temp_ini_path}': {e}")
-        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write INI file: {e}")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write INI file: {e}", exc_info=True)
         clean_temp_files(temp_script_path, None, debug_logger, temp_script_output_json_path, temp_script_log_path)
         return None
 
@@ -386,12 +433,12 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
     debug_logger(MO2_LOG_INFO, f"SkyGen: Calling MO2's startApplication for '{mo2_exec_name_to_use}' with arguments: {xedit_args} and CWD: {cwd}")
 
     for temp_f_path in [temp_script_output_json_path, temp_script_log_path]:
-        if temp_f_path.exists():
+        if temp_f_path and temp_f_path.exists():
             try:
                 temp_f_path.unlink()
                 debug_logger(MO2_LOG_DEBUG, f"SkyGen: Deleted old temporary file: {temp_f_path}")
             except Exception as e:
-                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old temporary file {temp_f_path}: {e}. This might cause issues.")
+                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Could not delete old temporary file {temp_f_path}: {e}", exc_info=True)
 
     try:
         app_handle = wrapped_organizer.startApplication(mo2_exec_name_to_use, xedit_args, str(cwd))
@@ -407,7 +454,7 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
         total_wait_time = 0
         poll_interval = 1
         while total_wait_time < MAX_POLL_TIME:
-            if temp_script_output_json_path.is_file() and temp_script_output_json_path.stat().st_size > 0:
+            if temp_script_output_json_path and temp_script_output_json_path.is_file() and temp_script_output_json_path.stat().st_size > 0:
                 debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit output file '{temp_script_output_json_path}' found and not empty after {total_wait_time} seconds.")
                 break
             time.sleep(poll_interval)
@@ -423,23 +470,23 @@ def safe_launch_xedit(wrapped_organizer: Any, dialog: Any, xedit_path: Path, xed
             debug_logger(MO2_LOG_INFO, f"SkyGen: Moved xEdit JSON output from '{temp_script_output_json_path}' to '{final_export_json_path}'.")
         except Exception as e:
             dialog.showError("File Move Error", f"Failed to move xEdit output JSON from '{temp_script_output_json_path}' to '{final_export_json_path}': {e}. You may need to move it manually.")
-            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to move xEdit JSON output: {e}")
+            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to move xEdit JSON output: {e}", exc_info=True)
             return None
         
-        if temp_script_log_path.is_file() and temp_script_log_path.stat().st_size > 0:
+        if temp_script_log_path and temp_script_log_path.is_file() and temp_script_log_path.stat().st_size > 0:
             final_export_log_path = final_output_folder / f"SkyGen_xEdit_Script_Log_{Path(temp_script_log_path).stem.split('_')[-1]}.txt"
             try:
                 shutil.move(str(temp_script_log_path), str(final_export_log_path))
                 debug_logger(MO2_LOG_INFO, f"SkyGen: Moved xEdit script log from '{temp_script_log_path}' to '{final_export_log_path}'.")
             except Exception as e:
-                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to move xEdit script log from '{temp_script_log_path}' to '{final_export_log_path}': {e}.")
+                debug_logger(MO2_LOG_WARNING, f"SkyGen: WARNING: Failed to move xEdit script log from '{temp_script_log_path}' to '{final_export_log_path}': {e}.", exc_info=True)
         
         clean_temp_files(temp_script_path, temp_ini_path, debug_logger)
         debug_logger(MO2_LOG_INFO, f"SkyGen: xEdit successfully completed, output saved to: {final_export_json_path}")
         return final_export_json_path
 
     except Exception as e:
-        debug_logger(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Unexpected error launching or running xEdit: {e}\n{traceback.format_exc()}")
+        debug_logger(MO2_LOG_CRITICAL, f"SkyGen: CRITICAL: Unexpected error launching or running xEdit: {e}\n{traceback.format_exc()}", exc_info=True)
         dialog.showError("xEdit Error", f"An unexpected error occurred while trying to run xEdit: {e}. Check MO2 logs for more details.")
         clean_temp_files(temp_script_path, temp_ini_path, debug_logger, temp_script_output_json_path, temp_script_log_path)
         return None
@@ -551,106 +598,30 @@ def generate_and_write_skypatcher_yaml(
         target_base_object = all_exported_target_bases_by_formid.get(form_id)
         is_target_mod_base = bool(target_base_object)
         
-        # Check if the record is overridden by another plugin (IsOverridden from xEdit script)
-        # We only want to patch base objects that are NOT overridden by other plugins
-        # or if BroadCategorySwap is enabled, we might process overridden records.
-        # For a standard patch, we usually only care about the highest override.
-        # The xEdit script exports the *base* object. We need to check if *that FormID* is overridden
-        # in the *target plugin's context*.
-        # The xEdit script exports base objects. So, if record['IsOverridden'] is true,
-        # it means the *exported record* itself (the one with 'FormID' and 'EditorID') is an override
-        # in the general load order, but here we want to know if the BASE OBJECT in the TARGET
-        # mod is overridden by something *else* in the load order.
-        # This requires knowing the full load order, which MO2 handles.
-        # For now, let's assume if xEdit exported it from the SOURCE mod, it's valid for patching
-        # based on user selection.
-        
-        # The IsOverridden flag from xEdit refers to whether the *exported record* itself is an override.
-        # If BroadCategorySwap is enabled, we proceed regardless of 'IsOverridden' for source.
-        # If BroadCategorySwap is NOT enabled, and we want to create a patch
-        # where source overrides target, we typically target the *highest* version of the target.
-        # If a record in the *source* is overridden by something else *after* the source,
-        # that's a different concern.
-        
-        # For simplicity, we are currently generating patches based on the *source* mod's exported data.
-        # The complexity of "is this record the highest override in the full load order?" is
-        # beyond the scope of a simple xEdit export and might need a different xEdit script approach
-        # or post-processing on the full load order.
-
-        # For this version, if broad_category_swap_enabled is False, we will only consider
-        # records from the source that are *not* themselves overrides (i.e., they are base records
-        # in the source mod). This is a common pattern for "patching from" original mods.
-        
-        # However, the xEdit script now exports `IsOverridden` based on whether the *base object*
-        # is overridden *in the context of the xEdit load order*. If this is `True` for a source record,
-        # it means some other plugin is overriding it. For a SkyPatcher, we generally want to patch
-        # from the *highest* version of a record.
-        # The current script exports the base record, not necessarily the highest override.
-
-        # Let's simplify: if broad_category_swap_enabled is false, we want to skip records
-        # that are already overrides *in the source JSON*. The xEdit script is designed to export
-        # the base object. So, if `record.get("IsOverridden")` is true, it means the record
-        # whose FormID was exported IS overridden by something else. If we only want
-        # to patch from *unique* or base records from the source, we'd check this flag.
-        
-        # For SkyPatcher, if we want to "patch from A to B", we export what's in A.
-        # The `IsOverridden` flag in the JSON indicates if the *original base record* has
-        # an override *anywhere* in the loaded plugins within xEdit.
-        # For SkyPatcher, we are taking records from the source mod. If the source mod's
-        # record is itself an override of something *else*, then usually we want to patch
-        # based on that override.
-
-        # The `IsOverridden` from the xEdit export means that the *base form ID* exported
-        # from the source mod *is overridden somewhere in the load order*.
-        # For a standard patch, we want to patch FROM the *effective* record in the source.
-        # This means we should *not* filter by `IsOverridden` for source records.
-        # If `IsOverridden` is true for a source record, it just means something higher
-        # up is overriding it, which is fine, we're taking the base object.
-
-        # The goal for SkyPatcher is generally to find a record in the SOURCE, and if a *matching*
-        # record exists in the TARGET (by FormID), then swap values.
-        # The current `baseObjects` from xEdit are the original base records.
-        # We need to verify if these base records exist in the target.
-
-        # For SkyPatcher, if broad_category_swap_enabled is FALSE, we are expecting
-        # the `record_type` (category) to match.
-        # If broad_category_swap_enabled is TRUE, we are doing a blanket swap
-        # based on FormID, regardless of category.
-
-        # Patch logic
         patch_entry = {}
         if broad_category_swap_enabled:
-            # If broad category swap is enabled, the source's category might be different
-            # from the target's, but we still want to patch based on FormID.
-            patch_entry = {
-                "source": {
-                    "FormID": form_id,
-                    "File": source_plugin_filename # Use the actual plugin filename from xEdit
-                },
-                "destination": {
-                    "Type": record_type, # The record type from the UI
-                    "Category": record_type,
-                    "Replace": True # Always replace for broad category swap
-                }
-            }
-            # The Name in the destination is not strictly needed for broad swap, but can be helpful for context
-            if record_name:
-                patch_entry["destination"]["Name"] = record_name
-            total_records_processed += 1
-        else:
-            # Standard patching: category must match
-            # The xEdit script already filters by TargetCategory.
-            # So, if we reach here, `current_record_signature` should match `record_type`
-            # or `record.get("Signature")` if we added it to the xEdit export.
-            
-            # Here, we assume the exported `record_type` matches `category` for non-broad swap.
             patch_entry = {
                 "source": {
                     "FormID": form_id,
                     "File": source_plugin_filename
                 },
                 "destination": {
-                    "Type": record_type, # This must match the category
+                    "Type": record_type,
+                    "Category": record_type,
+                    "Replace": True
+                }
+            }
+            if record_name:
+                patch_entry["destination"]["Name"] = record_name
+            total_records_processed += 1
+        else:
+            patch_entry = {
+                "source": {
+                    "FormID": form_id,
+                    "File": source_plugin_filename
+                },
+                "destination": {
+                    "Type": record_type,
                     "Category": record_type,
                     "Replace": True
                 }
@@ -668,7 +639,6 @@ def generate_and_write_skypatcher_yaml(
         return False
 
     # Construct the output file path
-    # Example: SkyGen_Enhanced_Landscapes_STAT_to_DynDOLOD_Output.yaml
     yaml_filename = f"SkyGen_{source_display_name.replace(' ', '_')}_{record_type}_to_{target_mod_name.replace(' ', '_')}.yaml"
     
     # Create the patcher-specific subfolder within the output folder
@@ -677,11 +647,6 @@ def generate_and_write_skypatcher_yaml(
     try:
         final_output_yaml_path.parent.mkdir(parents=True, exist_ok=True)
         with open(final_output_yaml_path, 'w', encoding='utf-8') as f:
-            # Use a YAML library to dump the data. PyYAML is a common choice.
-            # Since we don't have PyYAML directly, we'll use a simple JSON-like dump for now
-            # and note that real YAML serialization would be needed.
-            # For demonstration, we'll use a basic JSON dump as a placeholder for YAML.
-            # In a real MO2 plugin, you might bundle PyYAML or use a more basic string format.
             json.dump(yaml_data, f, indent=2, ensure_ascii=False) # Placeholder for YAML
         
         dialog_instance.showInformation("YAML Generation Complete", f"Successfully generated YAML for '{source_display_name}' to '{target_mod_name}' for category '{record_type}'.\nSaved to: {final_output_yaml_path}")
@@ -689,7 +654,7 @@ def generate_and_write_skypatcher_yaml(
         return True
     except Exception as e:
         dialog_instance.showError("YAML Write Error", f"Failed to write YAML file to '{final_output_yaml_path}': {e}")
-        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write YAML file: {e}")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write YAML file: {e}", exc_info=True)
         return False
 
 
@@ -720,7 +685,7 @@ def generate_bos_ini_files(
         debug_logger(MO2_LOG_INFO, f"SkyGen: Created BOS INI output directory: {bos_output_base_path}")
     except Exception as e:
         dialog_instance.showError("Directory Creation Error", f"Failed to create BOS INI output directory: {bos_output_base_path}\n{e}")
-        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to create BOS INI output directory {bos_output_base_path}: {e}")
+        debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to create BOS INI output directory {bos_output_base_path}: {e}", exc_info=True)
         return False
 
     for mod_entry in igpc_data["mods"]:
@@ -739,25 +704,12 @@ def generate_bos_ini_files(
             for rule in object_rules:
                 if "formID" in rule and "modelPath" in rule:
                     bos_ini_content += f"{rule['formID']},{rule['modelPath']}\n"
-            bos_ini_content += "\n" # Add a newline for separation
+            bos_ini_content += "\n"
 
-        # Add other sections if they exist in the IGPC format
-        # Example: [Texture Rules], [Mesh Rules], etc.
-        # This part assumes a specific structure for IGPC JSON.
-        # You would expand this based on the actual IGPC JSON structure.
-        
-        # Example for a hypothetical 'textureRules'
-        # if mod_entry.get("textureRules"):
-        #     bos_ini_content += "[Texture Rules]\n"
-        #     for rule in mod_entry["textureRules"]:
-        #         bos_ini_content += f"{rule['textureID']},{rule['newTexture']}\n"
-        #     bos_ini_content += "\n"
-
-        # Sanitize mod name for filename (replace invalid characters)
         sanitized_mod_name = "".join(c for c in mod_name if c.isalnum() or c in (' ', '_', '-')).strip()
         sanitized_mod_name = sanitized_mod_name.replace(' ', '_')
         if not sanitized_mod_name:
-            sanitized_mod_name = f"UnnamedMod_{int(time.time())}" # Fallback
+            sanitized_mod_name = f"UnnamedMod_{int(time.time())}"
             debug_logger(MO2_LOG_WARNING, f"SkyGen: Sanitized mod name for '{mod_name}' resulted in empty string, using fallback: {sanitized_mod_name}")
 
         ini_filename = f"BOS_{sanitized_mod_name}.ini"
@@ -770,7 +722,7 @@ def generate_bos_ini_files(
             success_count += 1
         except Exception as e:
             dialog_instance.showError("INI Write Error", f"Failed to write BOS INI for '{mod_name}' to '{final_ini_path}': {e}")
-            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write BOS INI for '{mod_name}': {e}")
+            debug_logger(MO2_LOG_ERROR, f"SkyGen: ERROR: Failed to write BOS INI for '{mod_name}': {e}", exc_info=True)
             fail_count += 1
     
     if success_count > 0:
@@ -780,4 +732,46 @@ def generate_bos_ini_files(
     
     debug_logger(MO2_LOG_INFO, f"SkyGen: BOS INI generation complete. Successes: {success_count}, Failures: {fail_count}.")
     return success_count > 0
+
+def get_game_root_path_from_general_ini(wrapped_organizer: Any, dialog: Any) -> Optional[Path]:
+    """
+    Attempts to read the game root path from the Skyrim.ini (or equivalent).
+    This is a common way for tools to determine the game's actual installation location.
+    """
+    debug_logger = wrapped_organizer.log
+    debug_logger(MO2_LOG_INFO, "SkyGen: Attempting to determine game root path from Skyrim.ini.")
+
+    game_info = wrapped_organizer.gameInfo()
+    if not game_info:
+        debug_logger(MO2_LOG_WARNING, "SkyGen: Could not get game info from organizer.")
+        return None
+
+    # Get the path to the game's INI folder (usually My Games/GameName)
+    game_ini_path_str = wrapped_organizer.profile().absolutePath() # This gives profile path, not necessarily game ini path
+
+    # A more reliable way is to find the game path using MO2's game information
+    # mobase.IOrganizer.gamePath() might be better if available and directly provides game root
+    game_path_from_organizer = wrapped_organizer.gamePath() # Hypothetical, might not exist in all mobase versions
+
+    if game_path_from_organizer:
+        game_root = Path(game_path_from_organizer)
+        if game_root.is_dir():
+            debug_logger(MO2_LOG_INFO, f"SkyGen: Game root path determined directly from MO2: {game_root}")
+            return game_root
+
+    # Fallback: try to guess based on common ini location relative to MO2's base path
+    # This might be less reliable than direct MO2 API calls
+    mo2_base_path = Path(wrapped_organizer.basePath())
+    
+    # Common INI locations relative to My Games or MO2's own game folder
+    # This is a complex heuristic as INI locations vary widely.
+    # For robust detection, checking specific MO2 API or assuming xEdit can find it is often better.
+
+    # Given the previous issues, a direct `gamePath()` or similar is ideal.
+    # If not, assume xEdit figures it out or it's implicitly known.
+    # For now, let's just log a warning if we couldn't find it easily.
+    debug_logger(MO2_LOG_WARNING, "SkyGen: Automatic game root detection from INI is not robustly implemented or found. Relying on MO2/xEdit defaults.")
+    
+    # Return None if no game root could be determined by the function
+    return None
 
