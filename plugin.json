@@ -1,0 +1,8 @@
+{
+  "name": "SkyGen Plugin",
+  "author": "Bolt⚡ & Mayhem",
+  "version": "1.0.0",
+  "description": "A Mod Organizer 2 plugin for generating optimized Skyrim VR plugin data.",
+  "url": "https://github.com/outtamercy/SkyGen",
+  "python": "SkyGen"
+}
