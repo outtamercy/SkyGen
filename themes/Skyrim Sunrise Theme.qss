@@ -1,0 +1,292 @@
+/*
+ * Skyrim Sunset Theme for SkyGen Plugin
+ * Inspired by "Sun barely coming up on the sea of ghosts.png"
+ * Colors:
+ * Backgrounds: Dark Grey/Navy (#1A1A2E, #28283D)
+ * Accents/Highlights: Deep Orange (#FF8C00), Gold (#FFD700)
+ * Text: Light Grey (#E0E0E0), Gold for active elements
+ * Borders/Separators: Darker Orange/Brown (#8B4513)
+ */
+
+QDialog { /* Apply background image to the main dialog using a direct relative path */
+    /* CRITICAL FIX: Direct relative path to subfolder. This assumes the QSS file is in 'themes/'
+       and the image 'Sun barely coming up on the sea of ghosts.png' is in 'themes/Skyrim Sunrise/'. */
+    background-image: url(./Skyrim Sunrise/Sun barely coming up on the sea of ghosts.png); 
+    background-position: center;
+    background-repeat: no-repeat;
+    /* CRITICAL FIX: Removed unsupported 'background-attachment: fixed;' */
+    /* CRITICAL FIX: Removed unsupported 'background-size: cover;' to avoid "Unknown property" warnings. */
+    color: #FFD700; /* Gold for general text */
+    font-family: "Inter", sans-serif; /* Recommended font */
+    font-size: 10pt;
+}
+
+QWidget {
+    background-color: transparent; /* Make base widgets transparent to show dialog background */
+    color: #FFD700; /* Gold for general text */
+    font-family: "Inter", sans-serif; /* Recommended font */
+    font-size: 10pt;
+}
+
+/* Make inner content areas transparent to show background through */
+QGroupBox, QTabWidget::pane, QPlainTextEdit {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border: 1px solid #8B4513; /* Darker orange/brown border */
+    border-radius: 8px; /* Rounded corners */
+    margin-top: 1.5ex; /* Space for title */
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left; /* Position the title */
+    padding: 0 3px; /* Padding around title */
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border-radius: 4px; /* Rounded corners for title */
+    color: #FFD700; /* Gold for group titles */
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #FFD700; /* Vibrant gold background */
+    color: #1A1A2E; /* Dark text on button */
+    border: 1px solid #FFD700; /* Gold border */
+    border-radius: 8px;
+    padding: 8px 15px;
+    font-weight: bold;
+    min-width: 80px;
+    min-height: 25px;
+}
+
+QPushButton:hover {
+    background-color: #FFA500; /* Lighter orange on hover */
+    border: 1px solid #FFFFFF; /* White border on hover */
+}
+
+QPushButton:pressed {
+    background-color: #CD6600; /* Darker orange on press */
+    border: 1px solid #FFD700;
+}
+
+QPushButton:disabled {
+    background-color: #555566;
+    color: #AAAAAA;
+    border: 1px solid #666677;
+}
+
+/* Line Edits (Text Inputs) */
+QLineEdit {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+    padding: 5px;
+    color: #FFD700; /* Vibrant gold text */
+}
+
+QLineEdit:focus {
+    border: 1px solid #FFD700; /* Gold focus border */
+}
+
+/* Combo Boxes (Dropdowns) */
+QComboBox {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+    padding: 5px;
+    color: #FFD700; /* Vibrant gold text */
+    min-height: 25px;
+}
+
+QComboBox::drop-down {
+    border: 0px; /* No border for the arrow */
+}
+
+QComboBox::down-arrow {
+    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cGF0aCBmaWxsPSIjRjBGMEYwIiBkPSJNMCA0aDE2TDUgMTJIMSA0eiIvPjwvc3ZnPg==);
+    width: 10px;
+    height: 10px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    selection-background-color: #FF8C00; /* Orange selection */
+    color: #FFD700; /* Vibrant gold text */
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+}
+
+/* Checkboxes */
+QCheckBox {
+    color: #FFD700; /* Vibrant gold text */
+    spacing: 5px;
+}
+
+QCheckBox::indicator {
+    width: 13px;
+    height: 13px;
+    border: 1px solid #FFD700; /* Gold border for checkbox */
+    border-radius: 3px;
+    background-color: transparent; /* Remove semi-transparent overlay */
+}
+
+QCheckBox::indicator:checked {
+    background-color: #FF8C00; /* Orange when checked */
+    image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADpN/U5AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB4eC/fgAAABx0RVh0U29mdHdhcmUATWFjcm9tZWRpYSBGaXJld29ya3sgTWEyqHyrAAAAEklEQVQImWNgGAXDCmSAwQEAEwQBB5kLpLwAAAAASUVORK5CYII=); /* Simple white checkmark */
+}
+
+/* Radio Buttons */
+QRadioButton {
+    color: #FFD700; /* Vibrant gold text */
+    spacing: 5px;
+}
+
+QRadioButton::indicator {
+    width: 13px;
+    height: 13px;
+    border: 1px solid #FFD700; /* Gold border for radio button */
+    border-radius: 7px; /* Circular for radio button */
+    background-color: transparent; /* Remove semi-transparent overlay */
+}
+
+QRadioButton::indicator:checked {
+    background-color: #FF8C00; /* Orange when checked */
+    border: 1px solid #FFD700;
+}
+
+/* Tab Widget */
+QTabWidget::pane {
+    border: 1px solid #8B4513; /* Consistent border for the content area */
+    border-top: 0px; /* No top border to blend with tabs */
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+QTabBar::tab {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    color: #FFD700; /* Vibrant gold text */
+    padding: 8px 15px;
+    border: 1px solid #8B4513;
+    border-bottom: 0px; /* No bottom border for tabs */
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 2px; /* Small space between tabs */
+}
+
+QTabBar::tab:selected {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    color: #FFD700; /* Vibrant gold text */
+    border-color: #FFD700; /* Gold border for selected tab */
+    border-bottom: 1px solid transparent; /* Blend with pane background */
+    font-weight: bold;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #3F3F57; /* Darker hover for non-selected tabs */
+}
+/* Plain Text Edit (Log Display) */
+QPlainTextEdit {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border: 1px solid #8B4513;
+    border-radius: 8px;
+    padding: 5px;
+    color: #FFD700; /* Vibrant gold text */
+    selection-background-color: #FF8C00; /* Orange selection */
+}
+
+/* Scroll Bars */
+QScrollBar:vertical, QScrollBar:horizontal {
+    border: 1px solid #3F3F57;
+    background: #1A1A2E;
+    width: 12px; /* For vertical */
+    height: 12px; /* For horizontal */
+    margin: 0px 0px 0px 0px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: #FF8C00; /* Orange handle */
+    border-radius: 5px;
+    min-height: 20px;
+    min-width: 20px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+/* Progress Bar */
+QProgressBar {
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+    text-align: center;
+    color: #FFD700; /* Vibrant gold text */
+    background-color: #28283D;
+}
+
+QProgressBar::chunk {
+    background-color: #FF8C00; /* Orange fill */
+    border-radius: 5px;
+}
+
+/* Labels */
+QLabel {
+    color: #FFD700; /* Vibrant gold text */
+}
+
+/* Status Log specific labels */
+#conciseStatusLabel {
+    color: lightgreen; /* Default for info messages */
+    font-weight: bold;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #3F3F57;
+    color: #FFD700; /* Vibrant gold text */
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+    padding: 5px;
+    opacity: 200; /* semi-transparent */
+}
+
+/* Spin Box (if used) */
+QSpinBox, QDoubleSpinBox {
+    background-color: transparent; /* Remove semi-transparent overlay */
+    border: 1px solid #8B4513;
+    border-radius: 5px;
+    padding: 5px;
+    color: #FFD700; /* Vibrant gold text */
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border-left: 1px solid #8B4513;
+    background-color: #FF8C00;
+    border-top-right-radius: 4px;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border-left: 1px solid #8B4513;
+    background-color: #FF8C00;
+    border-bottom-right-radius: 4px;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cGF0aCBmaWxsPSIjRjBGMEYwIiBkPSJNOS43OTMgMTFsLTMuNDctMy40N0wxIDExSDl6IiB0cmFuc2Zvcm09InJvdGF0ZSgxODAgOC4zOTY1IDYuOTc1KSIvPjwvc3ZnPg==);
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgdmlld0JveD0iMCAwIDE2IDE2Ij48cGF0aCBmaWxsPSIjRjBGMEYwIiBkPSJNMCA0aDE2TDUgMTJIMSA0eiIvPjwvc3ZnPg==);
+}

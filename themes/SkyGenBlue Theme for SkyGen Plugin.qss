@@ -1,0 +1,132 @@
+/* SkyGenBlue Theme for SkyGen Plugin */
+
+/* Base Dialog/Window background */
+QDialog {
+    background-image: url(SkyGenBlue/Frame.jpg);
+    background-position: center;
+    background-repeat: no-repeat;
+    color: #E0E0E0;
+}
+
+/* Make group boxes and main content areas semi-transparent to show dialog background */
+QGroupBox {
+    background-color: rgba(30, 30, 40, 0.85);
+    border: 1px solid rgba(70, 70, 90, 0.7);
+    border-radius: 8px;
+    padding: 10px;
+    margin-top: 1em;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ADD8E6;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    background-color: transparent;
+}
+
+QWidget {
+    background-color: transparent;
+    color: #E0E0E0;
+}
+
+/* Inputs and Comboboxes */
+QLineEdit, QComboBox {
+    background-color: rgba(45, 45, 55, 0.9);
+    border: 1px solid #505060;
+    border-radius: 5px;
+    padding: 5px;
+    color: #E0E0E0;
+    selection-background-color: #0078D7;
+}
+QComboBox::drop-down {
+    border-left: 1px solid #505060;
+    width: 20px;
+}
+QComboBox::down-arrow {
+    image: url(SkyGenBlue/arrow_down.png);
+    width: 12px;
+    height: 12px;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #4A90E2;
+    color: white;
+    border: 1px solid #3A7BCD;
+    border-radius: 8px;
+    padding: 8px 15px;
+    font-weight: bold;
+    min-width: 80px;
+}
+QPushButton:hover {
+    background-color: #5BA0F2;
+    border: 1px solid #4A90E2;
+}
+QPushButton:pressed {
+    background-color: #3A7BCD;
+}
+QPushButton:disabled {
+    background-color: #606060;
+    color: #B0B0B0;
+    border: 1px solid #505050;
+}
+
+/* Radio Buttons & Checkboxes */
+QRadioButton, QCheckBox {
+    color: #E0E0E0;
+}
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 7px;
+    border: 1px solid #606060;
+    background-color: #303030;
+}
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
+    background-color: #4A90E2;
+    border: 1px solid #ADD8E6;
+}
+
+/* Text Edit (Status Log) */
+QTextEdit {
+    background-color: rgba(25, 25, 30, 0.9);
+    border: 1px solid #505060;
+    border-radius: 8px;
+    padding: 8px;
+    color: #F0F0F0;
+}
+QTextEdit:read-only {
+    background-color: rgba(20, 20, 25, 0.95);
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: 1px solid #303030;
+    background: #202020;
+    width: 12px;
+    margin: 15px 0 15px 0;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical {
+    background: #4A90E2;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* Splitter handle */
+QSplitter::handle {
+    background-color: #404040;
+}
+QSplitter::handle:hover {
+    background-color: #505050;
+}
+
+/* Labels */
+QLabel {
+    color: #E0E0E0;
+}

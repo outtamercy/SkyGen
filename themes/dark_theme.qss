@@ -1,0 +1,169 @@
+/* General Dark Theme for SkyGen Plugin */
+
+/* Base Window and Dialogs */
+QDialog {
+    background-color: #1a1a1a; /* Very dark grey/almost black background */
+    color: #e0e0e0; /* Light grey text */
+}
+
+/* Group Boxes */
+QGroupBox {
+    background-color: #2a2a2a; /* Slightly lighter dark grey for groups */
+    border: 1px solid #444444; /* Darker border */
+    border-radius: 5px;
+    margin-top: 1ex; /* Space for title */
+    font-weight: bold;
+    color: #e0e0e0;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left; /* Position title at top left */
+    padding: 0 5px;
+    background-color: #2a2a2a; /* Match group box background */
+    color: #e0e0e0;
+}
+
+/* Labels */
+QLabel {
+    color: #e0e0e0;
+}
+
+/* Push Buttons */
+QPushButton {
+    background-color: #404040; /* Medium dark grey */
+    color: #e0e0e0;
+    border: 1px solid #555555;
+    border-radius: 5px;
+    padding: 5px 10px;
+    min-width: 80px;
+}
+
+QPushButton:hover {
+    background-color: #505050; /* Lighter on hover */
+}
+
+QPushButton:pressed {
+    background-color: #303030; /* Darker when pressed */
+    border-color: #666666;
+}
+
+QPushButton:disabled {
+    background-color: #353535;
+    color: #808080;
+    border-color: #454545;
+}
+
+/* Line Edits (Input Fields) */
+QLineEdit {
+    background-color: #303030;
+    color: #e0e0e0;
+    border: 1px solid #444444;
+    border-radius: 3px;
+    padding: 3px;
+}
+
+QLineEdit:read-only {
+    background-color: #2a2a2a;
+    color: #909090;
+}
+
+/* Combo Boxes (Dropdowns) */
+QComboBox {
+    background-color: #303030;
+    color: #e0e0e0;
+    border: 1px solid #444444;
+    border-radius: 3px;
+    padding: 3px;
+    selection-background-color: #00569e; /* Slightly darker blue for selection */
+    selection-color: #ffffff;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left-width: 1px;
+    border-left-color: #444444;
+    border-left-style: solid;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+QComboBox::down-arrow {
+    image: url(icons:down_arrow.png); /* Placeholder, ensure you have a dark theme compatible arrow */
+}
+
+QComboBox QAbstractItemView {
+    background-color: #303030;
+    color: #e0e0e0;
+    selection-background-color: #00569e;
+    selection-color: #ffffff;
+    border: 1px solid #444444;
+}
+
+/* Checkboxes and Radio Buttons */
+QCheckBox, QRadioButton {
+    color: #e0e0e0;
+}
+
+QCheckBox::indicator, QRadioButton::indicator {
+    background-color: #303030;
+    border: 1px solid #555555;
+    border-radius: 3px;
+}
+
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background-color: #0078d7; /* Blue check */
+    border: 1px solid #00569e;
+}
+
+/* Plain Text Edit (for Status Log) */
+QPlainTextEdit {
+    background-color: #000000; /* Black background for log */
+    color: #ffffff; /* White text for log */
+    border: 1px solid #333333;
+    border-radius: 5px;
+    padding: 5px;
+}
+
+/* Scroll Bars (Optional, for better dark theme integration) */
+QScrollBar:vertical {
+    border: 1px solid #333333;
+    background: #222222;
+    width: 10px;
+    margin: 15px 0 15px 0;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical {
+    background: #444444;
+    min-height: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    background: none;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* Splitters */
+QSplitter::handle {
+    background-color: #444444;
+    border: 1px solid #333333;
+}
+
+QSplitter::handle:hover {
+    background-color: #555555;
+}
+
+QSplitter::handle:horizontal {
+    width: 5px;
+}
+
+QSplitter::handle:vertical {
+    height: 5px;
+}

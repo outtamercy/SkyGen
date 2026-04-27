@@ -1,0 +1,21 @@
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing would just die with "Found 0 plugins" then "No Body records found." Turns out we had three bugs stacked on top of each other:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner. "Body" fell through to nowhere.
+    The swap scanner gave up if the target mod had no plugins of its own. Now it scans the whole load order instead — because vanilla records live in Skyrim.esm and the DLCs, not in the target mod folder.
+    We were filtering body parts by editor_id only, looking for substrings like "body" or "skin." Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely. User picked the category, we trust it.
+
+Fixed: Config actually saves for people who see the welcome screen
+If your config didn't have welcome_load_order_sig stored, you'd hit the welcome panel every time. _enter_workspace would swap in a fresh app_config object but leave patch_settings pointing at the old one. All your UI changes got written to the dangling object, then save would write the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Added: Panic button
+Sometimes you just wanna hammer the config to disk right now without closing the dialog. Dev settings section now has a "💾 Flush Config NOW" button. Smashes save_application_config and flush_config immediately. For when things feel haunted.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the "Generate Entire ModList" / "Generate All Categories" checkboxes. So you could check a box and the button stayed dead. Now _update_combo_states forces a button recalc whenever mode switches.
+Fixed: BOS _scan_chance_spin tooltip crash
+Had the tooltip line sitting before the widget creation. Classic. Moved it after.
+Added: Tooltips everywhere
+BOS panel was missing explanations for half its widgets. Added tooltips for output folder, XYZ offsets, scan mode toggle, scan button, chance spin, clear/add/export buttons, category filter, and generate button. No more guessing what "FID Scan" means.
+Added: BOS generation progress logging
+M2M scan now logs "Scanning for Body records at 100% chance..." and "Writing N swaps at 100% chance to..." so you know the chance value actually got applied. Also added per-plugin heartbeat during the nuclear asset-scan fallback so the UI doesn't look frozen.

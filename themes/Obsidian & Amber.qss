@@ -1,0 +1,19 @@
+/* SkyGen: Amber Shimmer & ObsidianFocus: Diagonal light-sweep effect on buttons.*//* Global Reset */QWidget {background-color: #000000;color: #FFB000;font-family: "Segoe UI", Arial, sans-serif;outline: none;}/* Zero-outline labels */QLabel {background-color: transparent;border: none !important;outline: none !important;}/* THE SHIMMER BUTTONWe use a diagonal gradient (x1:0, y1:0 to x2:1, y2:1) to simulate a light source.*/QPushButton {color: #FFFFFF;font-weight: bold;border-radius: 4px;padding: 6px 18px;/* Base State: Subtle diagonal gloss */
+background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+    stop:0 #222222, 
+    stop:0.4 #111111, 
+    stop:0.5 #333333, 
+    stop:0.6 #111111, 
+    stop:1 #000000);
+    
+border-top: 1px solid #444444;
+border-left: 1px solid #333333;
+border-right: 1px solid #111111;
+border-bottom: 2px solid #000000;
+}/* The 'Sweep' Effect:When hovering, the 'light' (stop:0.5) moves and brightens,simulating a flash of light passing over the surface.*/QPushButton:hover {color: #FFB000;border-top: 1px solid #FFB000;background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
+    stop:0 #111111, 
+    stop:0.7 #555555, 
+    stop:0.8 #FFFFFF, 
+    stop:0.9 #555555, 
+    stop:1 #111111);
+}QPushButton:pressed {background: #FFB000;color: #000000;padding-top: 8px;padding-bottom: 4px;}/* Progress Bar Sweep */QProgressBar {border: 1px solid #333333;border-radius: 10px;text-align: center;background-color: #050505;height: 12px;}QProgressBar::chunk {/* Animated-look gradient for the progress fill */background: qlineargradient(x1:0, y1:0.5, x2:1, y2:0.5,stop:0 #aa7700,stop:0.5 #FFD580,stop:1 #aa7700);border-radius: 8px;}/* Group Boxes & Inputs */QGroupBox {border: 1px solid #1a1a1a;border-radius: 8px;margin-top: 15px;background-color: #030303;}QGroupBox::title {subcontrol-origin: margin;left: 10px;color: #888888;}QLineEdit {background-color: #080808;border: 1px solid #222222;border-radius: 4px;padding: 4px;color: #FFB000;}QLineEdit:focus {border: 1px solid #FFB000;background-color: #000000;}
