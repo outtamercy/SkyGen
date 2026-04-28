@@ -47,6 +47,8 @@ Troubleshooting
   → That category isn't in keyword/keywords.ini yet. You can still 
      generate — the Sentence Builder lets you type custom FormIDs.
 
+Support is offered on discord. https://discord.gg/f6dFYNEBf or https://discord.gg/kR9Wjv6GG https://discord.com/channels/1358821582654406676/1396947505568026735
+
 Requirements
 ------------
 
