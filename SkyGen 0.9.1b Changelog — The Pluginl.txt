@@ -1,0 +1,33 @@
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing died with "Found 0 plugins" then "No Body records found." Three bugs stacked:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner.
+    The swap scanner gave up if the target mod had no plugins. Now it scans the whole load order — vanilla records live in Skyrim.esm and DLCs, not in the target folder.
+    We were filtering body parts by editor_id only. Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely.
+
+Fixed: Config actually saves for people who hit the welcome screen
+If your config lacked welcome_load_order_sig, you'd hit the welcome panel every time. _enter_workspace swapped in a fresh app_config but left patch_settings pointing at the old object. All your UI changes got written to the dangling object, then save wrote the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Fixed: Theme combo showing "default" ghost text
+Purged DEFAULT_THEME_NAME from theme_manager.py. Combo now shows only real themes. No phantom fallback.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the ML Gen / Cat Gen boxes. Now _update_combo_states forces a recalc when mode switches.
+Fixed: All-cats generation only produced ARMO INIs
+worker.py was stripping underscores from signatures — NPC_ became NPC, which didn't match SKYPATCHER_SUPPORTED_RECORD_TYPES. Only ARMO survived. Fixed the strip call.
+Fixed: Bare addKeywords in generated INIs
+patch_gen.py was writing filterByKeywords=plugin|FID:addKeywords with no value. SkyPatcher read it, saw nothing, skipped it. Now data_exporter.py attaches the first keyword from the cache, and patch_gen.py skips records with no keyword value instead of writing broken syntax.
+Fixed: 3-mode forge bleed in patch_gen.py
+Single, ML, and Cat Gen were sharing variables and loops. auto_filter existed in some branches but not others, causing UnboundLocalError. Now the forge has three walled-off blocks — Single gets SB only, ML gets SB only, Cat Gen gets auto-filter metadata. No bleed.
+Fixed: Startup freeze on large modlists
+refresh_silos() was rebuilding the audit cache from scratch every launch even when silo cache was valid. Now it only generates if missing.
+Fixed: Manifest duplicate section crash
+ConfigParser(strict=True) dies on duplicate [elle] sections. Switched to strict=False — loads last value, heals on next save.
+Fixed: Welcome panel firing on valid cache
+Guard was reading manifest sig instead of silo cache sig. Different hash sources = never matched. Now Guard checks the silo cache directly.
+Added: Panic button
+Dev settings has a "💾 Flush Config NOW" button. Hammers config to disk immediately without closing.
+Added: Tooltips everywhere
+BOS panel and SP panel now explain what every widget does. No more guessing.
+Added: keywords.ini hole fillers
+Added [arma], [weapon], [npc], [light], [flora], [tree], [alchemy], [book], [misc], [furniture], [container], [soulgem], [scroll], [perk], [shout], [enchantment], [activator], [static], [ingredient], [key], [armaddon].
