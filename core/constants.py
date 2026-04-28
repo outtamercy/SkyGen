@@ -22,7 +22,7 @@ PLUGIN_AUTHOR = "Mayhem"
 # WAS: PLUGIN_VERSION = (0, 0, 1, mobase.ReleaseType.ALPHA)
 # FIX: Conditional version definition
 if _MOB_AVAILABLE:
-    PLUGIN_VERSION = (0, 9, 0, mobase.ReleaseType.BETA)  # 0.9.0 Beta
+    PLUGIN_VERSION = (0, 9, 1, mobase.ReleaseType.BETA)  # 0.9.1 Beta
 else:
     PLUGIN_VERSION = (0, 9, 0, "BETA")  # String fallback for standalone
 CURRENT_EXTRACTION_LOGIC_VERSION = 2 # Bump this from 1 to 2 when we update the logic and need to invalidate old manifests
@@ -33,6 +33,7 @@ PLUGIN_LOG_FILE_NAME = "SkyGen_Debug.txt"
 PLUGIN_LOGGER_NAME = "SkyGen"
 PLUGIN_URL = "https://github.com/outtamercy/SkyGen" # Real URL
 MANIFEST_FILE_NAME = "skygen_manifest.ini"
+CURRENT_APP_VERSION = "0.9.0-BETA"
 
 # --- Debugging and Logging ---
 DEBUG_MODE = False # Set to True for verbose debugging, False for normal operation
@@ -206,19 +207,6 @@ BLACKLIST_AUTHORS = {
     "Groovtama"
 }
 
-BLACKLIST_KEYWORDS = {
-    "RaceMenu",
-    "SkyUI", 
-    "DynDOLOD",
-    "Engine Fixes",
-    "Address Library",
-    "USSEP",
-    "SKSE",
-    "ConsoleUtil",
-    "Base Object Swapper",
-    "Papyrus Extender",
-    "Synthesis",  # <-- Catches Synthesis
-}
 
 # The "Founders" - Authors that trigger automatic Shield protection
 PROTECTED_AUTHORS = {
@@ -506,8 +494,20 @@ SUCCESS_MESSAGES = {
 }
 
 # --- Framework & Pattern Detection ---
-# Centralized to prevent drift between Snoop and Frankie
-BLACKLIST_KEYWORDS = {"patch", "reproccer", "dynamic", "generated"} # Add your specifics
+# ============================================
+# BLACKLIST / SILOED INTELLIGENCE CONSTANTS
+# ============================================
+
+BLACKLIST_KEYWORDS = {
+    # Generic System Terms
+    "patch", "reproccer", "dynamic", "generated",
+    
+    # Specific Frameworks & Tools
+    "RaceMenu", "SkyUI", "DynDOLOD", "Engine Fixes", 
+    "Address Library", "USSEP", "SKSE", "ConsoleUtil", 
+    "Base Object Swapper", "Papyrus Extender", "Synthesis",
+    "Mutagen", "MCMHelper"
+}
 
 # --- Framework Identification Scents ---
 # These are the "Tags" your snoop engine applies to a plugin's DNA
@@ -525,13 +525,6 @@ FRAMEWORK_LOGIC_SIGNATURES = {
     "SP_RECORDS"
 }
 
-# The actual patterns used for deep sniffing
-SCENT_PATTERNS = {
-    "BOS_FRAMEWORK": [rb'BaseObjectSwapper', rb'_SWAP.ini'],
-    "SP_FRAMEWORK": [rb'SkyPatcher', rb'_reproccer'],
-    # Add others as needed for your VR setup
-}
-
 # Utility Functions
 # ============================================
 
@@ -543,9 +536,3 @@ def hash_file_head(file_path: Path, size: int = 4096) -> str:
         return hashlib.sha256(data).hexdigest()[:16]
     except Exception:
         return "0" * 16
-
-# Versioning & Logic Tracking
-# ============================================
-CURRENT_APP_VERSION = "0.9.0-BETA"
-CURRENT_EXTRACTION_LOGIC_VERSION = 2  # Integer, not string "1.2"
-BLESSED_HASH_PREFIX = "BLESSED_"  # Not "SG_", must match frankensnoop.py line 34
