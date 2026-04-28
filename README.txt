@@ -34,6 +34,7 @@ Install
 
 Troubleshooting
 ---------------
+SkyGen® is made to be fully contained so if you don't need to install python.  It will actually run better without a system installed python.
 
 "ModuleNotFoundError: No module named 'lz4'"
   → You deleted or moved the lz4/ folder. Re-download the release and 
