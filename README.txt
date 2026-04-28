@@ -17,11 +17,35 @@ What it does
 Install
 -------
 
-1. Download the release.
-2. Drop the SkyGen folder into your MO2 plugins/ directory.
-3. Launch MO2. SkyGen shows up in the toolbar.
-4. Pick an output folder (I use mods/SkyGen_Output).
-5. Hit Generate. Done.
+1. Download the release ZIP.
+2. Extract it. You should see a folder named "SkyGen" (or "SkyGen_0_09b").
+3. Drop that ENTIRE folder into your MO2 plugins/ directory.
+   Correct path looks like: MO2/plugins/SkyGen/
+   NOT: MO2/plugins/SkyGen_0_09b/SkyGen/
+4. Inside the SkyGen folder, verify you have:
+   - SkyGen/ (plugin root)
+   - lz4/    (dependency folder — DO NOT DELETE THIS)
+   - keyword/keywords.ini
+   - themes/
+   If lz4/ is missing, the plugin will crash on generation.
+5. Launch MO2. SkyGen shows up in the toolbar.
+6. Pick an output folder (I use mods/SkyGen_Output).
+7. Hit Generate. Done.
+
+Troubleshooting
+---------------
+
+"ModuleNotFoundError: No module named 'lz4'"
+  → You deleted or moved the lz4/ folder. Re-download the release and 
+     make sure lz4/ sits next to the SkyGen/ plugin folder inside plugins/.
+
+"Welcome screen every time"
+  → This is normal on first launch or after changing your mod list.
+     Scroll down, check the box, hit Continue.
+
+"No keywords for [category]"
+  → That category isn't in keyword/keywords.ini yet. You can still 
+     generate — the Sentence Builder lets you type custom FormIDs.
 
 Requirements
 ------------
