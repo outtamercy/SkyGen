@@ -52,6 +52,7 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             "Generates a separate INI for every plugin that has this record type. "
             "Target and Source combos get ignored."
         )
+        lay.addWidget(self.gen_modlist_cb)
         
         self.gen_all_cats_cb = QCheckBox("Cat Gen")
         self.gen_all_cats_cb.setToolTip(
@@ -59,6 +60,7 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             "Generates separate INI folders for each category (AMMO/, ARMO/, etc.). "
             "Target, Source, and Sentence Builder all get ignored."
         )
+        lay.addWidget(self.gen_all_cats_cb)
 
         self.target_mod_combo = QComboBox()
         self.target_mod_combo.setEditable(True)
