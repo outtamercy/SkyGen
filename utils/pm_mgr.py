@@ -85,6 +85,11 @@ class ProfileManager(QObject, LoggingMixin):
         self.log_debug(f"Load order signature: {sig} ({len(clean_plugins)} plugins)")
         return sig
 
+    @property
+    def load_order_signature(self) -> str:
+        """Exposed for main_dialog welcome seal checks."""
+        return self._get_loadorder_signature()
+
     def get_load_order_map(self) -> Dict[int, str]:
         """Build index-to-plugin map from loadorder.txt - zero API calls."""
         lo_path = self.wrapper.profile_dir / "loadorder.txt"
@@ -138,20 +143,12 @@ class ProfileManager(QObject, LoggingMixin):
             if not self._manifest and self._manifest_path.exists():
                 self.load_manifest()
                 # Cache path skipped _build_manifest_and_emit — bridge never got built
-                self._plugin_to_mod_bridge = self.build_plugin_to_mod_bridge()            
-            # Now audit has real data to chew on
-            self.generate_audit_cache()
-            
-            # Flush frameworks from loaded manifest (cache path skips _build)
-            if self._manifest:
-                suspects = {
-                    name: entry.framework_reason 
-                    for name, entry in self._manifest.items() 
-                    if entry.is_framework and entry.framework_reason
-                }
-                if suspects:
-                    self._flush_framework_batch(suspects)
-            
+                self._plugin_to_mod_bridge = self.build_plugin_to_mod_bridge() 
+                
+            # Audit cache only if missing — otherwise on-demand when Auditor opens
+            if not self._get_audit_cache_path().exists():
+                self.generate_audit_cache()
+                        
             cache = self._load_silo_cache()
             if cache:
                 # Emit rich objects directly - no sparse conversion
@@ -180,7 +177,7 @@ class ProfileManager(QObject, LoggingMixin):
             return True
         
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             config.read(self._manifest_path, encoding='utf-8')
             
             stored_sig = config.get('_meta', 'loadorder_signature', fallback='')
@@ -606,7 +603,7 @@ class ProfileManager(QObject, LoggingMixin):
             return None
             
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             config.read(cache_path, encoding='utf-8')
             
             format_ver = config.get('_meta', 'format', fallback='legacy')
@@ -694,7 +691,7 @@ class ProfileManager(QObject, LoggingMixin):
             return
         
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             config.read(profile_ini, encoding='utf-8')
             
             # Check version for migration

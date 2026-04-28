@@ -328,14 +328,24 @@ class GenerationWorker(QRunnable, LoggingMixin):
         output_folder = Path(self.patch_settings.skypatcher_output_folder)
         success = False
 
+        # Mass-mode sanitization: strip targeting so writer can't accidentally use it
+        is_mass_mode = generate_all_categories or generate_modlist
+        pg_target_mod = "" if is_mass_mode else self.patch_settings.target_mod
+        pg_source_mod = "" if is_mass_mode else self.patch_settings.source_mod
+        pg_category = "" if generate_all_categories else target_category
+        pg_sb_filter = "" if is_mass_mode else getattr(self.patch_settings, 'sp_filter_type', '')
+        pg_sb_action = "" if is_mass_mode else getattr(self.patch_settings, 'sp_action_type', '')
+        pg_sb_value = "" if is_mass_mode else getattr(self.patch_settings, 'sp_value_formid', '')
+
         if ot == "SkyPatcher INI":
             # ✅ FIX: Pass SB args explicitly to patch_gen
+
             success = self.patch_gen.generate_skypatcher_ini(
                 extracted_data={"baseObjects": kept_records},
-                category=self.patch_settings.category,
-                target_mod_plugin_name=self.patch_settings.target_mod,
-                source_mod_plugin_name=self.patch_settings.source_mod,
-                source_mod_display_name=self.patch_settings.source_mod,
+                category=pg_category,
+                target_mod_plugin_name=pg_target_mod,
+                source_mod_plugin_name=pg_source_mod,
+                source_mod_display_name=pg_source_mod,
                 source_mod_base_objects=None,
                 all_exported_target_bases_by_formid={r["form_id"]: r for r in kept_records if "form_id" in r},
                 dialog_instance=self,
@@ -343,10 +353,9 @@ class GenerationWorker(QRunnable, LoggingMixin):
                 generate_all_categories=self.patch_settings.generate_all_categories,
                 generate_modlist=generate_modlist,
                 use_sentence_builder=getattr(self.patch_settings, 'sp_use_sentence_builder', True),
-                sp_filter_type=getattr(self.patch_settings, 'sp_filter_type', ''),
-                sp_action_type=getattr(self.patch_settings, 'sp_action_type', ''),
-                sp_value_formid=getattr(self.patch_settings, 'sp_value_formid', ''),
-                sp_lmw_winners_only=getattr(self.patch_settings, 'sp_lmw_winners_only', True),
+                sp_filter_type=pg_sb_filter,
+                sp_action_type=pg_sb_action,
+                sp_value_formid=pg_sb_value,
             )
             
             # Cache vault lock: Store records for instant replay

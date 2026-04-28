@@ -59,17 +59,22 @@ class Guard(QObject, LoggingMixin):
             self.log_info("Bat-folder completion - manifest exists, silos missing")
             return "bat_complete"
             
-        if self._manifest_exists and self._silos_exist:
-            # Check if load order drifted since last run
+        if self._silos_exist:
+            # Silo cache is the fast-path truth — check it first
             current_sig = self._get_loadorder_signature()
-            stored_sig = self._read_stored_signature()
+            stored_sig = self._read_silo_signature()
             
-            if current_sig != stored_sig:
+            if stored_sig and current_sig == stored_sig:
+                self.log_info("Silo cache signature match — fast load")
+                return "ready"
+            
+            if stored_sig and current_sig != stored_sig:
                 self._load_order_changed = True
                 self.log_info(f"Load order changed ({stored_sig[:8]}... -> {current_sig[:8]}...)")
                 return "ml_change"
-                
-            # Check logic version bump
+        
+        if self._manifest_exists and self._silos_exist:
+            # Fallback: manifest-only check when silo meta is missing
             from ..core.constants import CURRENT_EXTRACTION_LOGIC_VERSION
             stored_ver = self._read_stored_logic_version()
             
@@ -126,6 +131,19 @@ class Guard(QObject, LoggingMixin):
             config.read(manifest_path, encoding='utf-8')
             return config.get('_meta', 'loadorder_signature', fallback='')
         except:
+            return ""
+
+    def _read_silo_signature(self) -> str:
+        """Read signature from silo cache — the fast-path source of truth."""
+        silo_path = self.data_dir / f"skygen_silos_{self.wrapper.profile_name}.ini"
+        if not silo_path.exists():
+            return ""
+        try:
+            import configparser
+            config = configparser.ConfigParser()
+            config.read(silo_path, encoding='utf-8')
+            return config.get('_meta', 'loadorder_signature', fallback='')
+        except Exception:
             return ""
             
     def _read_stored_logic_version(self) -> int:

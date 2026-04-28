@@ -62,6 +62,11 @@ class PatchAndConfigGenerationManager(LoggingMixin):
         # Global mode means we're blasting across everything
         use_global_mode = target_mod_plugin_name in ["[GLOBAL_MODE]", "all_categories", ""]
 
+        # Hard override: all-cats is always global, no matter what target string leaked in
+        if generate_all_categories:
+            use_global_mode = True
+            target_mod_plugin_name = "[GLOBAL_MODE]"
+
         try:
             # Grab the sentence builder bits if the user filled 'em out
             sb_filter = sp_filter_type or getattr(self.patch_settings, 'sp_filter_type', '')
@@ -104,49 +109,37 @@ class PatchAndConfigGenerationManager(LoggingMixin):
 
                 lines: List[str] = []
                 
-                # Grab the sentence builder bits if the user filled 'em out AND we're in single mode
-                # SB only in single/ML mode, never all-cats
-                use_custom_filter = use_sentence_builder and has_sentence_builder and not generate_all_categories
-                if use_custom_filter:
-                    # Custom user syntax: Filter=Origin|LocalID:Action=Value
-                    sentence_line = f"{sb_filter}={origin_plugin}|{local_id}:{sb_action}={sb_value}"
-                    lines.append(sentence_line)
-                    lines.append("")  # Breathing room
-                else:
-                    # Trust DE's pre-computed metadata
-                    auto_filter = target_rec.get("sp_filter", SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords"))
-                    auto_action = target_rec.get("sp_action", FILTER_TO_ACTIONS.get(auto_filter, ["addKeywords"])[0])
-                    base_line = f"{auto_filter}={origin_plugin}|{local_id}"
-                    
-                    # Tack on addToLLs params if we got 'em
-                    params = []
-                    model = target_rec.get('model', '')
-                    inv_art = target_rec.get('inventory_art', '')
-                    alt_tex = target_rec.get('alternate_textures', '')
-                    
-                    if model and isinstance(model, str) and 'clutter' in model.lower():
-                        params.append(f"model={model}")
-                    if inv_art and isinstance(inv_art, str):
-                        params.append(f"inventoryArt={inv_art}")
-                    if alt_tex and isinstance(alt_tex, str):
-                        params.append(f"alternateTexturesToAdd={alt_tex}")
-                    
-                    if params:
-                        base_line += f":addToLLs={{{':'.join(params)}}}"
-                        lines.append(base_line)
-                        lines.append("")
-                    elif sb_action and sb_value_padded and not generate_all_categories:
-                        # Sentence builder gave us ammo — use it
-                        base_line += f":{sb_action}={sb_value_padded}"
+                # --- MODE 3: CAT GEN ---
+                if generate_all_categories:
+                    auto_filter = target_rec.get(
+                        "sp_filter",
+                        SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
+                    )
+                    auto_action = FILTER_TO_ACTIONS.get(auto_filter, ["addKeywords"])[0]
+                    keyword_value = target_rec.get("keyword_value")
+                    if keyword_value:
+                        base_line = f"{auto_filter}={origin_plugin}|{local_id}"
+                        base_line += f":{auto_action}={keyword_value}"
                         lines.append(base_line)
                         lines.append("")
                     else:
-                        # Default action from DE's metadata
-                        base_line += f":{auto_action}"
-                        lines.append(base_line)
-                        lines.append("")
+                        continue
 
-                # File 'em away under their origin plugin
+                # --- MODE 2: ML GEN ---
+                elif generate_modlist:
+                    if has_sentence_builder and sb_filter and sb_action and sb_value:
+                        lines.append(
+                            f"{sb_filter}={origin_plugin}|{local_id}:{sb_action}={sb_value}"
+                        )
+                        lines.append("")
+                    else:
+                        continue
+
+                # --- SHIELD: Single mode does NOT touch records_by_pair ---
+                else:
+                    continue
+
+                # Only mass-gen records reach here
                 key = (origin_plugin, file_name)
                 if key not in records_by_pair:
                     records_by_pair[key] = (master_plugin, [])
@@ -173,19 +166,9 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                     raw_form = str(target_rec.get('form_id', '00000000'))
                     local_id = raw_form[-6:].upper() if len(raw_form) >= 6 else raw_form.zfill(6).upper()
                     
+                    # --- MODE 1: SINGLE ---
                     if use_sentence_builder and sb_filter and sb_action and sb_value:
                         line = f"{sb_filter}={origin}|{local_id}:{sb_action}={sb_value}"
-                    else:
-                        auto_filter = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
-                        line = f"{auto_filter}={origin}|{local_id}"
-                        params = []
-                        model = target_rec.get('model', '')
-                        if model and isinstance(model, str) and 'clutter' in model.lower():
-                            params.append(f"model={model}")
-                        if params:
-                            line += f":addToLLs={{{':'.join(params)}}}"
-                        elif sb_action and sb_value_padded:
-                            line += f":{sb_action}={sb_value_padded}"
                     
                     all_lines.append(line)
                     all_lines.append("")

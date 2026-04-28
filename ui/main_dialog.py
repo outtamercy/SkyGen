@@ -431,7 +431,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         # <-- ADD: Single Audit button (context-aware)
         self.audit_btn = QPushButton("🔍 Audit")
         # Panic button — when config feels haunted, smash it
-        self._panic_btn = QPushButton("💾 Flush Config NOW")
+        self._panic_btn = QPushButton("💾 Config Panic Button")
         self._panic_btn.setToolTip("Emergency save — writes config to disk immediately")
         self._panic_btn.clicked.connect(self._on_panic_flush)
         dev_layout.addWidget(self._panic_btn)
@@ -601,22 +601,12 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         # Seal this acknowledgment to the current modlist signature
         current_sig = ""
         if self.controller:
-            # Try PM first
+            # Single source of truth: PM's SHA256 sig
             if self.controller.profile_manager:
-                current_sig = getattr(self.controller.profile_manager, 'load_order_signature', '')
-            
-            # Fallback: Compute MD5 of current plugins.txt/loadorder
-            if not current_sig and self.controller.organizer_wrapper:
-                import hashlib
-                try:
-                    raw_load = self.controller.organizer_wrapper.read_loadorder_txt()
-                    # Hash the ordered list of plugin filenames
-                    content = '\n'.join([line.strip() for line in raw_load if line.strip() and not line.startswith('#')])
-                    if content:
-                        current_sig = hashlib.md5(content.encode('utf-8')).hexdigest()[:16]
-                        self.log_info(f"Computed sig from load order: {current_sig}")
-                except Exception as e:
-                    self.log_warning(f"Could not compute load order signature: {e}")
+                current_sig = self.controller.profile_manager.load_order_signature
+                if current_sig:
+                    ac.welcome_load_order_sig = current_sig
+                    self.log_info(f"Welcome seal locked to: {current_sig}")
             
             if current_sig:
                 ac.welcome_load_order_sig = current_sig
@@ -760,11 +750,24 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         ac = self.controller.app_config
         
         # Theme setup FIRST so users can switch during welcome if ghosting occurs
+        # Theme setup — no "default" ghost text ever
         self._populate_theme_combobox()
         self.theme_combo.blockSignals(True)
-        self.theme_combo.setCurrentText(ac.selected_theme)
+        
+        if ac.selected_theme and self.theme_combo.findText(ac.selected_theme) >= 0:
+            self.theme_combo.setCurrentText(ac.selected_theme)
+        elif self.theme_combo.count() > 0:
+            # Saved theme missing or empty — grab first real item, never invent "default"
+            self.theme_combo.setCurrentIndex(0)
+            ac.selected_theme = self.theme_combo.currentText()
+            self.config_manager.save_application_config(ac)
+        else:
+            # No themes at all — leave combo empty, no ghost text
+            ac.selected_theme = ""
+        
         self.theme_combo.blockSignals(False)
-        self.theme_manager.apply_theme(ac.selected_theme)
+        if ac.selected_theme:
+            self.theme_manager.apply_theme(ac.selected_theme)
         self.log_debug("Populating initial data from saved config.")
         
         # Determine if we should show the welcome screen:
@@ -789,35 +792,19 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
             show_welcome = True
             self.log_info("First run—welcome screen required")
         elif self.controller and self.controller.profile_manager:
-            # Config says acknowledged, but check if ML changed since then
+            # Single source of truth: PM's SHA256 sig
             stored_sig = getattr(ac, 'welcome_load_order_sig', '')
-            current_sig = getattr(self.controller.profile_manager, 'load_order_signature', '')
+            current_sig = self.controller.profile_manager.load_order_signature if self.controller.profile_manager else ''
+            
             if current_sig and stored_sig != current_sig:
                 show_welcome = True
                 ac.welcome_acknowledged = False
                 self.log_info(f"Modlist changed ({stored_sig[:8]} → {current_sig[:8]})—resealing welcome")
-
-            # Acknowledged but no signature stored yet (migration) - capture now without showing
-            current_sig = ""
-            if self.controller and self.controller.organizer_wrapper:
-                import hashlib
-                try:
-                    raw_load = self.controller.organizer_wrapper.read_loadorder_txt()
-                    content = '\n'.join([line.strip() for line in raw_load if line.strip() and not line.startswith('#')])
-                    if content:
-                        current_sig = hashlib.md5(content.encode('utf-8')).hexdigest()[:16]
-                        ac.welcome_load_order_sig = current_sig
-                        self.config_manager._do_write_ini()
-                        self.log_info(f"Migration: captured sig {current_sig} from live load order")
-                except Exception as e:
-                    self.log_warning(f"Migration: could not compute signature: {e}")
-        elif self.controller and self.controller.profile_manager:
-            # Both exist, compare them
-            current_sig = getattr(self.controller.profile_manager, 'load_order_signature', '')
-            if current_sig and stored_sig != current_sig:
-                show_welcome = True
-                self.log_info(f"Modlist changed ({stored_sig[:8]} → {current_sig[:8]})—resealing welcome")
-                ac.welcome_acknowledged = False
+            elif not stored_sig and current_sig:
+                # Migration: no sig stored yet, capture now without showing
+                ac.welcome_load_order_sig = current_sig
+                self.config_manager._do_write_ini()
+                self.log_info(f"Migration: captured sig {current_sig}")
         
         if hasattr(self, 'welcome_panel') and show_welcome:
             self.panel_stack.setCurrentWidget(self.welcome_panel)
@@ -890,9 +877,10 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
     def _populate_theme_combobox(self) -> None:
         self.log_debug("Populating theme combo box.")
         themes = self.theme_manager.get_available_themes()
-        # Just populate, don't create
         self.theme_combo.clear()
-        self.theme_combo.addItems(themes or [self.theme_manager.DEFAULT_THEME_NAME])
+        if themes:
+            self.theme_combo.addItems(themes)
+        # No fallback — "default" is dead, combo stays empty if no themes found
 
     #######################################################################
     #  one-time wire-up

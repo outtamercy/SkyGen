@@ -46,10 +46,19 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         grp = QGroupBox("SkyPatcher INI Settings")
         lay = QVBoxLayout(grp)
 
-        self.gen_modlist_cb    = QCheckBox("Generate Entire ModList")
-        self.gen_all_cats_cb   = QCheckBox("Generate All Supported Categories")
-        lay.addWidget(self.gen_modlist_cb)
-        lay.addWidget(self.gen_all_cats_cb)
+        self.gen_modlist_cb = QCheckBox("ML Gen")
+        self.gen_modlist_cb.setToolTip(
+            "Modlist mode — one category, all plugins. "
+            "Generates a separate INI for every plugin that has this record type. "
+            "Target and Source combos get ignored."
+        )
+        
+        self.gen_all_cats_cb = QCheckBox("Cat Gen")
+        self.gen_all_cats_cb.setToolTip(
+            "All-categories mode — every record type, all plugins. "
+            "Generates separate INI folders for each category (AMMO/, ARMO/, etc.). "
+            "Target, Source, and Sentence Builder all get ignored."
+        )
 
         self.target_mod_combo = QComboBox()
         self.target_mod_combo.setEditable(True)
@@ -551,12 +560,25 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
     # ---------- Readiness ----------
     def is_ready(self) -> bool:
-        has_output   = bool(self.output_folder_input.text().strip())
-        has_profile  = self._md.organizer_wrapper.profile_dir.exists()
-        needs_category = not (self.gen_all_cats_cb.isChecked() or self.gen_modlist_cb.isChecked())
-        has_category = bool(self.category_combo.currentText().strip()) if needs_category else True
-        needs_target = not self.gen_modlist_cb.isChecked()
+        is_allcats = self.gen_all_cats_cb.isChecked()
+        is_modlist = self.gen_modlist_cb.isChecked()
+        is_single = not is_allcats and not is_modlist
+        
+        # Clean separation — each mode knows exactly what it needs
+        needs_target = is_single
+        needs_category = is_single or is_modlist
+        needs_output = True
+        needs_profile = True
+        
         has_target = bool(self.target_mod_combo.currentText().strip()) if needs_target else True
+        has_category = bool(self.category_combo.currentText().strip()) if needs_category else True
+        has_output = bool(self.output_folder_input.text().strip())
+        has_profile = self._md.organizer_wrapper.profile_dir.exists()
+        
         ready = has_target and has_category and has_output and has_profile
-        self.log_debug(f"[SP] is_ready: target={has_target} (needs={needs_target}), cat={has_category} (needs={needs_category}), out={has_output}, profile={has_profile} → {ready}")
+        self.log_debug(
+            f"[SP] is_ready: mode={'single' if is_single else 'modlist' if is_modlist else 'allcats'}, "
+            f"target={has_target} (needs={needs_target}), cat={has_category} (needs={needs_category}), "
+            f"out={has_output}, profile={has_profile} → {ready}"
+        )
         return ready

@@ -146,6 +146,7 @@ class SkyGenUIController(QObject):
         self.plugin_path = plugin_path
         self.cache = CacheManager(str(plugin_path))
         self.data_exporter.cache_manager = self.cache
+
         self.ui_widgets: Optional[Dict[str, Any]] = None
         self.sp_panel: Optional['SkyPatcherPanel'] = None
         self.bos_panel: Optional['BosPanel'] = None
@@ -179,6 +180,9 @@ class SkyGenUIController(QObject):
         self._keyword_cache: Dict[str, List[str]] = {}
         self._filter_cache: Dict[str, List[str]] = {}  # INI keys for Filter combo
         self._warm_keyword_cache()
+
+        # Feed DE the keyword cache so auto-gen has ammo
+        self.data_exporter.keyword_cache = self._keyword_cache
 
         self._handle_worker_log_line("Director Fury on-line – 'S.H.I.E.L.D. Status Report' active.", MO2_LOG_INFO)
         _configure_logger_once(self.app_config.debug_logging, self.app_config.traceback_logging)

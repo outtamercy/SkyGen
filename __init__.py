@@ -11,49 +11,70 @@ import os
 import sys
 from datetime import datetime
 
-# --- EMERGENCY DEBUGGING BLOCK (COMPLETE) ---
-_plugin_root_for_emergency_log_path = Path(__file__).parent
-_emergency_log_dir = _plugin_root_for_emergency_log_path / "logs"
-_emergency_log_dir.mkdir(parents=True, exist_ok=True)
-log_file_path = _emergency_log_dir / "Ebug.txt"
+# --- EBUG BLOCK (COMPLETE) ---
+_plugin_root_for_ebug_path = Path(__file__).parent
+_ebug_log_dir = _plugin_root_for_ebug_path / "logs"
+_ebug_log_dir.mkdir(parents=True, exist_ok=True)
+log_file_path = _ebug_log_dir / "Ebug.txt"
 try:
     with open(log_file_path, "w", encoding='utf-8') as f:
-        f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- PLUGIN STARTING (EMERGENCY DEBUG) ---\n")
+        f.write(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] --- PLUGIN STARTING (EBUG) ---\n")
         f.write(f"  Current working directory: {os.getcwd()}\n")
         f.write(f"  __file__: {__file__}\n")
 
-        plugin_root_for_emergency_log = Path(__file__).parent
-        if str(plugin_root_for_emergency_log) not in sys.path:
-            sys.path.insert(0, str(plugin_root_for_emergency_log))
-            f.write(f"  Added plugin root to sys.path: {plugin_root_for_emergency_log}\n")
+        plugin_root_for_ebug = Path(__file__).parent
+        if str(plugin_root_for_ebug) not in sys.path:
+            sys.path.insert(0, str(plugin_root_for_ebug))
+            f.write(f"  Added plugin root to sys.path: {plugin_root_for_ebug}\n")
 
-        lz4_dir_for_emergency_log = plugin_root_for_emergency_log / 'lz4_tools'
-        if str(lz4_dir_for_emergency_log) not in sys.path and lz4_dir_for_emergency_log.is_dir():
-            sys.path.insert(0, str(lz4_dir_for_emergency_log))
-            f.write(f"  Added lz4_tools directory to sys.path: {lz4_dir_for_emergency_log}\n")
-        elif not lz4_dir_for_emergency_log.is_dir():
+        lz4_dir_for_ebug = plugin_root_for_ebug / 'lz4_tools'
+        if str(lz4_dir_for_ebug) not in sys.path and lz4_dir_for_ebug.is_dir():
+            sys.path.insert(0, str(lz4_dir_for_ebug))
+            f.write(f"  Added lz4_tools directory to sys.path: {lz4_dir_for_ebug}\n")
+        elif not lz4_dir_for_ebug.is_dir():
             f.write(
-                f"  WARNING: lz4_tools directory not found at: {lz4_dir_for_emergency_log}. LZ4-related functions may fail.\n")
+                f"  WARNING: lz4_tools directory not found at: {lz4_dir_for_ebug}. LZ4-related functions may fail.\n")
         else:
-            f.write(f"  lz4_tools directory already in sys.path: {lz4_dir_for_emergency_log}\n")
+            f.write(f"  lz4_tools directory already in sys.path: {lz4_dir_for_ebug}\n")
 
         f.write(f"  sys.path contents AFTER initial additions:\n")
         for p in sys.path:
             f.write(f"    - {p}\n")
 
+        # --- SPOOF: Build lz4._version from version.py + C-lib stubs ---
+        lz4_folder = plugin_root_for_ebug / 'lz4'
+        version_py = lz4_folder / 'version.py'
+        if version_py.exists():
+            f.write(f"  SPOOF: Building lz4._version from {version_py}\n")
+            import importlib.util
+            _spec = importlib.util.spec_from_file_location("lz4._version", version_py)
+            _lz4_ver_mod = importlib.util.module_from_spec(_spec)
+            sys.modules["lz4._version"] = _lz4_ver_mod
+            _spec.loader.exec_module(_lz4_ver_mod)
+            # C-lib symbols the .pyd would provide but version.py lacks
+            if not hasattr(_lz4_ver_mod, 'library_version_number'):
+                setattr(_lz4_ver_mod, 'library_version_number', 10302)
+            if not hasattr(_lz4_ver_mod, 'library_version_string'):
+                setattr(_lz4_ver_mod, 'library_version_string', "1.9.3")
+            # Ensure the names lz4/__init__.py imports are all present
+            _needed = ('version', 'version_tuple', 'library_version_number', 'library_version_string')
+            _missing = [n for n in _needed if not hasattr(_lz4_ver_mod, n)]
+            f.write(f"  SPOOF: lz4._version ready, missing attrs: {_missing if _missing else 'none'}\n")
+        # --- END SPOOF ---
+
         f.write(f"  Attempting to import lz4.frame directly for test:\n")
         try:
             import lz4.frame
-            f.write(f"  - lz4.frame imported successfully in EMERGENCY DEBUG!\n")
+            f.write(f"  - lz4.frame imported successfully in EBUG!\n")
         except ImportError as lz4_import_e:
-            f.write(f"  - Failed to import lz4.frame in EMERGENCY DEBUG: {lz4_import_e}\n")
+            f.write(f"  - Failed to import lz4.frame in EBUG: {lz4_import_e}\n")
             f.write(f"  - Traceback:\n")
             traceback.print_exc(file=f)
-        f.write(f"--- END EMERGENCY DEBUG BLOCK ---\n")
+        f.write(f"--- END EBUG BLOCK ---\n")
 except Exception as e:
-    print(f"CRITICAL ERROR: Failed to write to emergency log: {e}", file=sys.stderr)
+    print(f"CRITICAL ERROR: Failed to write to ebug log: {e}", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
-# --- END EMERGENCY DEBUGGING BLOCK ---
+# --- END EBUG BLOCK ---
 
 # --- CRITICAL FIX: Explicitly order imports and use module-level referencing ---
 from .utils.logger import LoggingMixin, SkyGenLogger
@@ -83,6 +104,24 @@ from .utils.guard import Guard
 print(f"[{PLUGIN_NAME}.__init__] sys.path after plugin path addition and imports:")
 for p in sys.path:
     print(f"  - {p}")
+
+# --- SPOOF: Build lz4._version from version.py + C-lib stubs ---
+_plugin_root = Path(__file__).parent
+_version_py = _plugin_root / 'lz4' / 'version.py'
+if _version_py.exists():
+    print(f"[{PLUGIN_NAME}] SPOOF: Building lz4._version from {_version_py}")
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location("lz4._version", _version_py)
+    _lz4_ver_mod = importlib.util.module_from_spec(_spec)
+    sys.modules["lz4._version"] = _lz4_ver_mod
+    _spec.loader.exec_module(_lz4_ver_mod)
+    if not hasattr(_lz4_ver_mod, 'library_version_number'):
+        setattr(_lz4_ver_mod, 'library_version_number', 10302)
+    if not hasattr(_lz4_ver_mod, 'library_version_string'):
+        setattr(_lz4_ver_mod, 'library_version_string', "1.9.3")
+    print(f"[{PLUGIN_NAME}] SPOOF: lz4._version ready.")
+# --- END SPOOF ---
+
 try:
     import lz4.frame
     print(f"[{PLUGIN_NAME}.__init__] Successfully imported lz4.frame (bundled).")

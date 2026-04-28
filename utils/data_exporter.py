@@ -133,6 +133,12 @@ class DataExporter(LoggingMixin):
                             sig = record.get("signature", "")
                             record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                             record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
+                            # Attach keyword value if we got 'em — makes auto-gen output valid
+                            cat = target_category or record.get("category", "") or rec.get("signature", "")
+                            cat_clean = cat.strip('_ ')
+                            keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
+                            if keyword_list:
+                                record["keyword_value"] = keyword_list[0]
                             form_id = record.get('form_id', '00000000')
                             prefix = form_id[:2].upper()
                             try:
@@ -166,6 +172,12 @@ class DataExporter(LoggingMixin):
                             sig = record.get("signature", "")
                             record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                             record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
+                            # Attach keyword value if we got 'em — makes auto-gen output valid
+                            cat = target_category or record.get("category", "") or rec.get("signature", "")
+                            cat_clean = cat.strip('_ ')
+                            keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
+                            if keyword_list:
+                                record["keyword_value"] = keyword_list[0]
                             record["category"] = target_category
                             form_id = record.get('form_id', '00000000')
                             prefix = form_id[:2].upper()
@@ -209,6 +221,12 @@ class DataExporter(LoggingMixin):
                         sig = record.get("signature", "")
                         record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                         record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
+                        # Attach keyword value if we got 'em — makes auto-gen output valid
+                        cat = target_category or record.get("category", "") or rec.get("signature", "")
+                        cat_clean = cat.strip('_ ')
+                        keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
+                        if keyword_list:
+                            record["keyword_value"] = keyword_list[0]
                         record["category"] = rec.get("signature", "UNKN")
                         form_id = record.get('form_id', '00000000')
                         prefix = form_id[:2].upper()

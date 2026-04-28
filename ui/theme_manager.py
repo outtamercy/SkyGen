@@ -20,8 +20,6 @@ class ThemeManager(LoggingMixin):
     Detects MO2's QSS themes and applies them to the application.
     """
 
-    DEFAULT_THEME_NAME = "Default"
-
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -47,7 +45,7 @@ class ThemeManager(LoggingMixin):
     #  detect
     # ------------------------------------------------------------------
     def get_available_themes(self) -> List[str]:
-        themes = [self.DEFAULT_THEME_NAME]
+        themes = []
 
         # 1. MO2 global sheets
         if self.mo2_stylesheets_path.is_dir():
@@ -65,18 +63,14 @@ class ThemeManager(LoggingMixin):
                 if qss.stem not in themes:
                     themes.append(qss.stem)
 
-        themes = sorted(list(set(themes)))
-        if self.DEFAULT_THEME_NAME in themes:
-            themes.remove(self.DEFAULT_THEME_NAME)
-        themes.insert(0, self.DEFAULT_THEME_NAME)
-        return themes
+        return sorted(list(set(themes)))
 
     # ------------------------------------------------------------------
     #  load content  (plugin-first, MO2-second)
     # ------------------------------------------------------------------
     def _get_qss_content(self, theme_name: str) -> Optional[str]:
-        if theme_name == self.DEFAULT_THEME_NAME:
-            return ""
+        if not theme_name:
+            return None
 
         # 1️⃣  PLUGIN theme – we load ourselves (images relative to plugin/themes/)
         plugin_qss = self.plugin_themes_path / f"{theme_name}.qss"
