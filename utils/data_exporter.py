@@ -119,10 +119,13 @@ class DataExporter(LoggingMixin):
         # Mode 1: Single plugin/category (no LMW needed, no manifest filter needed for single)
         if not generate_all_categories and len(plugin_names_to_extract) <= 2:
             target_cat_clean = target_category.strip('_ ') if target_category else ''  # Cache strip result once
-            for plugin_name in plugin_names_to_extract:
+            for idx, plugin_name in enumerate(plugin_names_to_extract, 1):
+                if progress_callback and idx % 10 == 0:
+                    progress_callback(idx, len(plugin_names_to_extract), f"scanning {plugin_name}")
                 path = self.organizer_wrapper.get_plugin_path(plugin_name)
                 if not path:
                     continue
+                self.log_debug(f"DE single: scanning {plugin_name}")
                 for rec in iter_records(path, mod_name=plugin_name, worker_instance=worker_instance,
                                        lz4_block=lz4_block, reader=reader_instance):
                     if rec["signature"].strip('_ ') == target_cat_clean:
@@ -147,14 +150,20 @@ class DataExporter(LoggingMixin):
                             except (ValueError, IndexError):
                                 record['origin_plugin'] = "Unknown"
                             extracted_records.append(record)
+                            if len(extracted_records) % 50 == 0:
+                                self.log_info(f"DE: extracted {len(extracted_records)} {target_category} records...")
 
         # Mode 2: Modlist generation (with LMW reversal + manifest pre-filter)
         elif not generate_all_categories and target_category:
             target_cat_clean = target_category.strip('_ ')
-            for plugin_name in plugin_names_to_extract:
+            for idx, plugin_name in enumerate(plugin_names_to_extract, 1):
+                if progress_callback and idx % 10 == 0:
+                    progress_callback(idx, len(plugin_names_to_extract), f"scanning {plugin_name}")
                 path = self.organizer_wrapper.get_plugin_path(plugin_name)
                 if not path:
                     continue
+                if idx % 10 == 0:
+                    self.log_info(f"DE: scan progress {idx}/{len(plugin_names_to_extract)} — {plugin_name}")
                 
                 if profile_mgr:
                     entry = profile_mgr.get_plugin_data(plugin_name)
@@ -187,16 +196,22 @@ class DataExporter(LoggingMixin):
                             except (ValueError, IndexError):
                                 record['origin_plugin'] = "Unknown"
                             extracted_records.append(record)
+                            if len(extracted_records) % 50 == 0:
+                                self.log_info(f"DE: extracted {len(extracted_records)} {target_category} records...")
 
         # Mode 3: All categories (LMW reversal + manifest filter + dedup)
         else:
             seen_formids: Set[str] = set()
             skipped_count = 0
             
-            for plugin_name in plugin_names_to_extract:
+            for idx, plugin_name in enumerate(plugin_names_to_extract, 1):
+                if progress_callback and idx % 10 == 0:
+                    progress_callback(idx, len(plugin_names_to_extract), f"scanning {plugin_name}")
                 path = self.organizer_wrapper.get_plugin_path(plugin_name)
                 if not path:
                     continue
+                if idx % 10 == 0:
+                    self.log_info(f"DE: scan progress {idx}/{len(plugin_names_to_extract)} — {plugin_name}")
                 
                 # HYBRID: Manifest pre-filter (skip if no relevant signatures at all)
                 if profile_mgr:
@@ -223,6 +238,11 @@ class DataExporter(LoggingMixin):
                         record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
                         # Attach keyword value if we got 'em — makes auto-gen output valid
                         cat = target_category or record.get("category", "") or rec.get("signature", "")
+                        # Cat gen needs keywords or PG skips every record
+                        cat = rec.get("signature", "").strip(' ')
+                        keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
+                        if keyword_list:
+                            record["keyword_value"] = keyword_list[0]
                         cat_clean = cat.strip('_ ')
                         keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
                         if keyword_list:
@@ -236,6 +256,8 @@ class DataExporter(LoggingMixin):
                         except (ValueError, IndexError):
                             record['origin_plugin'] = "Unknown"
                         extracted_records.append(record)
+                        if len(extracted_records) % 50 == 0:
+                            self.log_info(f"DE: extracted {len(extracted_records)} {target_category} records...")
             
             if skipped_count > 0:
                 self.log_info(f"Manifest-filtered: skipped {skipped_count} non-content mods")

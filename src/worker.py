@@ -220,6 +220,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
                 target_category=target_category,
                 worker_instance=self,
                 use_fast_scan=False,
+                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
             )
             if de_records is None:
                 de_records = []
@@ -234,63 +235,37 @@ class GenerationWorker(QRunnable, LoggingMixin):
             extracted_records = list(merged_by_fid.values())
             self.log_info(f"Single mode complete: {len(extracted_records)} records (DE returned {len(de_records)})")
 
-        # Mode 2: Modlist — Reader path with filtered silo targets
+        # Mode 2: Modlist — DE owns this, not us
         elif generate_modlist and target_category:
-            scan_cats = {target_category.strip('_ ')}
-            self.log_info(f"Modlist mode: scanning {len(selected_plugins)} plugins for {target_category}")
-            for plugin_idx, plugin_name in enumerate(selected_plugins):
-                if self._interrupted:
-                    return False, "User cancelled."
-                
-                if plugin_idx % 10 == 0:
-                    self.log_info(f"Scan progress: {plugin_idx}/{len(selected_plugins)} – {plugin_name}")
-                
-                path = self.organizer_wrapper.get_plugin_path(plugin_name)
-                if not path:
-                    continue
-                
-                for rec in iter_records(path, mod_name=plugin_name, worker_instance=self,
-                                       lz4_block=lz4_block, reader=reader_instance):
-                    if self._interrupted:
-                        return False, "User cancelled."
-                    
-                    if rec["signature"].strip(' ') in scan_cats:
-                        record = self.plugin_extractor.extract_at_offset(path, rec["offset"], self)
-                        if record:
-                            record["file_name"] = plugin_name
-                            extracted_records.append(record)
-                            
-                            if len(extracted_records) % 50 == 0:
-                                self.log_info(f"Extracted {len(extracted_records)} {target_category} records...")
+            self.log_info(f"Modlist mode: DE grinding {len(selected_plugins)} plugins for {target_category}")
+            de_records = self.data_exporter.export_plugin_data(
+                plugin_names_to_extract=selected_plugins,
+                game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
+                target_category=target_category,
+                worker_instance=self,
+                use_fast_scan=False,
+                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
+            )
+            if de_records is None:
+                de_records = []
+            extracted_records = de_records
+            self.log_info(f"Modlist: DE returned {len(extracted_records)} records")
 
-        # Mode 3: All categories — Reader path with filtered silo targets
+        # Mode 3: All categories — DE owns this, not us
         elif generate_all_categories:
-            scan_cats = SKYPATCHER_SUPPORTED_RECORD_TYPES
-            self.log_info(f"All-cats mode: scanning {len(selected_plugins)} plugins for all types")
-            for plugin_idx, plugin_name in enumerate(selected_plugins):
-                if self._interrupted:
-                    return False, "User cancelled."
-                
-                if plugin_idx % 10 == 0:
-                    self.log_info(f"Scan progress: {plugin_idx}/{len(selected_plugins)} – {plugin_name}")
-                
-                path = self.organizer_wrapper.get_plugin_path(plugin_name)
-                if not path:
-                    continue
-                
-                for rec in iter_records(path, mod_name=plugin_name, worker_instance=self,
-                                       lz4_block=lz4_block, reader=reader_instance):
-                    if self._interrupted:
-                        return False, "User cancelled."
-                    
-                    if rec["signature"].strip(' ') in scan_cats:
-                        record = self.plugin_extractor.extract_at_offset(path, rec["offset"], self)
-                        if record:
-                            record["file_name"] = plugin_name
-                            extracted_records.append(record)
-                            
-                            if len(extracted_records) % 50 == 0:
-                                self.log_info(f"Extracted {len(extracted_records)} total records...")
+            self.log_info(f"All-cats mode: DE grinding {len(selected_plugins)} plugins")
+            de_records = self.data_exporter.export_plugin_data(
+                plugin_names_to_extract=selected_plugins,
+                game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
+                target_category=target_category,
+                worker_instance=self,
+                use_fast_scan=False,
+                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
+            )
+            if de_records is None:
+                de_records = []
+            extracted_records = de_records
+            self.log_info(f"All-cats: DE returned {len(extracted_records)} records")
 
         else:
             return False, "No generation mode selected"
