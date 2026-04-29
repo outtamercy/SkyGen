@@ -324,15 +324,13 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         QTimer.singleShot(0, self._force_combo_refresh)
 
     def _force_combo_refresh(self) -> None:
-        """Targeted realization for Mayhem's Madness - avoids flicker."""
-        if not self.value_combo.isVisible() or not self.value_combo.isEnabled():
-            return
+        """Kick Qt to build the internal view — Filter and Value both ghost without this."""
+        for combo in (self.filter_combo, self.value_combo):
+            if combo.isVisible() and combo.isEnabled() and combo.count() > 0:
+                combo.showPopup()
+                combo.hidePopup()
         
-        # Only kick the popup to force view rebuild
-        self.value_combo.showPopup()
-        self.value_combo.hidePopup()
-        
-        # Ensure LineEdit is focused and placeholder persists
+        # Cursor reset for value so placeholder doesn't look dead
         le = self.value_combo.lineEdit()
         if le and not self.value_combo.currentText():
             le.setCursorPosition(0)
