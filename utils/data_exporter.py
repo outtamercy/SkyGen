@@ -236,13 +236,21 @@ class DataExporter(LoggingMixin):
                         sig = record.get("signature", "")
                         record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                         record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
-                        # Attach keyword value if we got 'em — makes auto-gen output valid
-                        cat = target_category or record.get("category", "") or rec.get("signature", "")
-                        # Cat gen needs keywords or PG skips every record
+                        # Cat gen only — try to match keyword to record content
                         cat = rec.get("signature", "").strip(' ')
                         keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
                         if keyword_list:
-                            record["keyword_value"] = keyword_list[0]
+                            editor_id = rec.get("editor_id", "").lower()
+                            name = rec.get("name", "").lower()
+                            keyword_value = None
+                            for kw in keyword_list:
+                                check = kw.lower().replace("arkf_", "").replace("wkf_", "").replace("rkf_", "")
+                                if check in editor_id or check in name:
+                                    keyword_value = kw
+                                    break
+                            if not keyword_value:
+                                keyword_value = keyword_list[0]
+                            record["keyword_value"] = keyword_value
                         cat_clean = cat.strip('_ ')
                         keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
                         if keyword_list:
