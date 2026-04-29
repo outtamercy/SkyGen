@@ -240,6 +240,7 @@ class DataExporter(LoggingMixin):
                     sig = record.get("signature", "")
                     record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                     record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
+                    
                     # Cat gen — origin-aware material matching
                     cat = rec.get("signature", "").strip(' ')
                     keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
@@ -248,6 +249,7 @@ class DataExporter(LoggingMixin):
                         name = rec.get("name", "").lower()
                         target_text = f"{editor_id} {name}"
                         origin_plugin = record.get('origin_plugin', 'Unknown')
+                        
                         # Narrow candidates by DLC research hints
                         hints = ORIGIN_KEYWORD_HINTS.get(origin_plugin, {}).get(cat, [])
                         candidates = keyword_list
@@ -261,11 +263,13 @@ class DataExporter(LoggingMixin):
                                     narrowed.append(kw)
                             if narrowed:
                                 candidates = narrowed
+                        
                         keyword_value = None
                         for kw in candidates:
                             stripped = kw.lower()
                             for prefix in ("arkf_", "wkf_", "rkf_", "akf_", "skf_", "mekf_", "mekef_", "arkfclothing", "is"):
                                 stripped = stripped.replace(prefix, "")
+                            
                             # Extract material by stripping slot prefix or suffix
                             material = stripped
                             for slot in ARMOR_SLOTS:
@@ -275,13 +279,19 @@ class DataExporter(LoggingMixin):
                                 elif material.startswith(slot):
                                     material = material[len(slot):]
                                     break
+                            
                             if material and material in target_text:
                                 keyword_value = kw
                                 break
+                        
+                        # Fallback keeps volume high — narrowed candidates mean no Bonemold in Dawnguard
                         if not keyword_value:
                             keyword_value = candidates[0] if candidates else keyword_list[0]
                         record["keyword_value"] = keyword_value
+                    
                     record["category"] = rec.get("signature", "UNKN")
+                    
+                    # Resolve origin for patch_gen header
                     form_id = record.get('form_id', '00000000')
                     prefix = form_id[:2].upper()
                     try:
@@ -289,6 +299,7 @@ class DataExporter(LoggingMixin):
                         record['origin_plugin'] = self.active_plugins[idx] if (0 <= idx < len(self.active_plugins)) else "Unknown"
                     except (ValueError, IndexError):
                         record['origin_plugin'] = "Unknown"
+                    
                     extracted_records.append(record)
                     if len(extracted_records) % 50 == 0:
                         self.log_info(f"DE: extracted {len(extracted_records)} {target_category} records...")
