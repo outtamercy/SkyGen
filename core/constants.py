@@ -123,6 +123,30 @@ CATEGORY_FILTER_ALIASES = {
     # Add others as needed - ARMO/ARMA often co-occur, WEAP/AMMO, etc.
 }
 
+# Slot names for keyword material extraction
+# DataExporter strips these from armor keywords to isolate the material
+ARMOR_SLOTS = ["boots", "cuirass", "gauntlets", "helmet", "shield", "cloak", "body", "hand", "feet", "head", "hair", "beard"]
+
+# Origin plugin → signature → material fragments that DLC actually adds
+# Expand this as you research — keeps Cat Gen from slapping Bonemold on Dawnguard
+ORIGIN_KEYWORD_HINTS = {
+    "Skyrim.esm": {
+        "ARMO": ["iron", "steel", "leather", "hide", "fur", "elven", "glass", "ebony", "daedric", "dragon", "imperial", "studded", "scaled", "dwarven", "orcish", "heavy", "light"],
+    },
+    "Update.esm": {
+        "ARMO": ["iron", "steel", "leather", "hide", "fur", "elven", "glass", "ebony", "daedric", "dragon", "imperial", "studded", "scaled", "dwarven", "orcish", "heavy", "light"],
+    },
+    "Dawnguard.esm": {
+        "ARMO": ["heavy", "light", "dawnguard", "vampire", "falmer", "snowelf", "hardened"],
+    },
+    "Dragonborn.esm": {
+        "ARMO": ["bonemold", "chitin", "stalhrim", "nordic", "carved"],
+    },
+    "HearthFires.esm": {
+        "ARMO": ["iron", "steel", "leather", "hide", "fur", "elven", "glass", "ebony", "daedric", "dragon", "imperial", "studded", "scaled", "dwarven", "orcish", "heavy", "light"],
+    },
+}
+
 # ============================================
 # BLACKLIST / SILOED INTELLIGENCE CONSTANTS
 # ============================================

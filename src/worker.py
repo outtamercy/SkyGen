@@ -303,14 +303,15 @@ class GenerationWorker(QRunnable, LoggingMixin):
         output_folder = Path(self.patch_settings.skypatcher_output_folder)
         success = False
 
-        # Mass-mode sanitization: strip targeting so writer can't accidentally use it
+        # Mass-mode sanitization: all-cats strips everything, ML keeps SB
+        is_allcats_mode = generate_all_categories
         is_mass_mode = generate_all_categories or generate_modlist
         pg_target_mod = "" if is_mass_mode else self.patch_settings.target_mod
         pg_source_mod = "" if is_mass_mode else self.patch_settings.source_mod
-        pg_category = "" if generate_all_categories else target_category
-        pg_sb_filter = "" if is_mass_mode else getattr(self.patch_settings, 'sp_filter_type', '')
-        pg_sb_action = "" if is_mass_mode else getattr(self.patch_settings, 'sp_action_type', '')
-        pg_sb_value = "" if is_mass_mode else getattr(self.patch_settings, 'sp_value_formid', '')
+        pg_category = "" if is_allcats_mode else target_category
+        pg_sb_filter = "" if is_allcats_mode else getattr(self.patch_settings, 'sp_filter_type', '')
+        pg_sb_action = "" if is_allcats_mode else getattr(self.patch_settings, 'sp_action_type', '')
+        pg_sb_value = "" if is_allcats_mode else getattr(self.patch_settings, 'sp_value_formid', '')
 
         if ot == "SkyPatcher INI":
             # ✅ FIX: Pass SB args explicitly to patch_gen

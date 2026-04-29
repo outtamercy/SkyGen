@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
-
+import hashlib
 from ..utils.logger import LoggingMixin, SkyGenLogger, MO2_LOG_INFO, MO2_LOG_DEBUG
 from ..src.organizer_wrapper import OrganizerWrapper
 from ..extractors.plugin_extractor import PluginExtractor
-from ..core.constants import SKYPATCHER_SUPPORTED_RECORD_TYPES, SIGNATURE_TO_FILTER, FILTER_TO_ACTIONS
+from ..core.constants import (
+    SKYPATCHER_SUPPORTED_RECORD_TYPES, SIGNATURE_TO_FILTER, FILTER_TO_ACTIONS,
+    ORIGIN_KEYWORD_HINTS, ARMOR_SLOTS
+)
 from ..extractors.reader import iter_records
 from ..extractors.reader import PluginReader
 
@@ -69,9 +72,10 @@ class DataExporter(LoggingMixin):
         else:
             mode_str = "single"
 
-        cache_key = f"extracted_{mode_str}_{'_'.join(sorted(plugin_names_to_extract))}_{target_category or 'all'}_fast{use_fast_scan}"
-        lo_hash = hash(tuple(self.active_plugins or [])) & 0xFFFFFFFF
-        cache_key += f"_lo{lo_hash}"
+        # Stable cache key — no randomized hash(), no 3KB plugin name strings
+        plugins_slug = hashlib.md5(','.join(sorted(plugin_names_to_extract)).encode()).hexdigest()[:12]
+        lo_slug = hashlib.md5(','.join(self.active_plugins or []).encode()).hexdigest()[:12]
+        cache_key = f"extracted_{mode_str}_{plugins_slug}_{target_category or 'all'}_fast{use_fast_scan}_lo{lo_slug}"
 
         # Try cache
         if self.cache_manager:
@@ -236,25 +240,52 @@ class DataExporter(LoggingMixin):
                         sig = record.get("signature", "")
                         record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                         record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
-                        # Cat gen only — try to match keyword to record content
-                        cat = rec.get("signature", "").strip(' ')
-                        keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
-                        if keyword_list:
-                            editor_id = rec.get("editor_id", "").lower()
-                            name = rec.get("name", "").lower()
-                            keyword_value = None
+                    # Cat gen — origin-aware material matching
+                    cat = rec.get("signature", "").strip(' ')
+                    keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
+                    if keyword_list:
+                        editor_id = rec.get("editor_id", "").lower()
+                        name = rec.get("name", "").lower()
+                        target_text = f"{editor_id} {name}"
+                        origin_plugin = record.get('origin_plugin', 'Unknown')
+                        
+                        # Narrow candidates by DLC research hints
+                        hints = ORIGIN_KEYWORD_HINTS.get(origin_plugin, {}).get(cat, [])
+                        candidates = keyword_list
+                        if hints:
+                            narrowed = []
                             for kw in keyword_list:
-                                check = kw.lower().replace("arkf_", "").replace("wkf_", "").replace("rkf_", "")
-                                if check in editor_id or check in name:
-                                    keyword_value = kw
+                                stripped = kw.lower()
+                                for prefix in ("arkf_", "wkf_", "rkf_", "akf_", "skf_", "mekf_", "mekef_", "arkfclothing", "is"):
+                                    stripped = stripped.replace(prefix, "")
+                                if any(hint in stripped for hint in hints):
+                                    narrowed.append(kw)
+                            if narrowed:
+                                candidates = narrowed
+                        
+                        keyword_value = None
+                        for kw in candidates:
+                            stripped = kw.lower()
+                            for prefix in ("arkf_", "wkf_", "rkf_", "akf_", "skf_", "mekf_", "mekef_", "arkfclothing", "is"):
+                                stripped = stripped.replace(prefix, "")
+                            
+                            # Extract material by stripping slot prefix or suffix
+                            material = stripped
+                            for slot in ARMOR_SLOTS:
+                                if material.endswith(slot):
+                                    material = material[:-len(slot)]
                                     break
-                            if not keyword_value:
-                                keyword_value = keyword_list[0]
-                            record["keyword_value"] = keyword_value
-                        cat_clean = cat.strip('_ ')
-                        keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
-                        if keyword_list:
-                            record["keyword_value"] = keyword_list[0]
+                                elif material.startswith(slot):
+                                    material = material[len(slot):]
+                                    break
+                            
+                            if material and material in target_text:
+                                keyword_value = kw
+                                break
+                        
+                        if not keyword_value:
+                            keyword_value = candidates[0] if candidates else keyword_list[0]
+                        record["keyword_value"] = keyword_value
                         record["category"] = rec.get("signature", "UNKN")
                         form_id = record.get('form_id', '00000000')
                         prefix = form_id[:2].upper()
