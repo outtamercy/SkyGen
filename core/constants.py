@@ -238,7 +238,9 @@ GLOBAL_IGNORE_PLUGINS = {
     "RaceMenu.esp",
     "RaceMenuPlugin.esp",
     "XPMSE.esp",
-    "MCMHelper.esp"  # McmHelper is utility, catches all variants via scent below
+    "MCMHelper.esp",
+  
+    # McmHelper is utility, catches all variants via scent below
 }
 
 # Tier 2: Fuzzy scents - catches SE/AE/VR/SKSE suffixes automatically

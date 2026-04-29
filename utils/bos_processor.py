@@ -100,6 +100,41 @@ class BosProcessor(LoggingMixin):
             except Exception:
                 continue
         
+        # Target mod dry? Victim records live in the load order, not the mod folder.
+        if not target_records and active_plugins:
+            self.log_info(
+                f"M2M_FALLBACK: {target_mod_name} has {len(target_plugins)} plugins, "
+                f"0 {category} records — scanning {len(active_plugins)} active plugins for victims",
+                MO2_LOG_INFO
+            )
+            seen_paths: set[Path] = set()
+            for plugin_name in active_plugins:
+                plugin_path = self.organizer_wrapper.get_plugin_path(plugin_name)
+                if plugin_path:
+                    p = Path(plugin_path).resolve()
+                    if p not in seen_paths:
+                        seen_paths.add(p)
+                        target_plugins.append(p)
+            
+            # Rescan expanded list
+            for plugin_path in target_plugins:
+                if abort_flag and getattr(abort_flag, '_abort_scan', False):
+                    return []
+                seen_fids: set[str] = set()
+                try:
+                    for rec in iter_records(plugin_path, reader=reader):
+                        sig = rec.get("signature", "")
+                        if sig in wanted_sigs:
+                            form_id = rec.get("form_id", "")
+                            if form_id and form_id not in seen_fids:
+                                seen_fids.add(form_id)
+                                target_records.append({
+                                    "form_id": form_id,
+                                    "plugin_name": plugin_path.name,
+                                })
+                except Exception:
+                    continue
+        
         if not target_records:
             return []
         
