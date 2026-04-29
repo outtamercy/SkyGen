@@ -4,8 +4,8 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple, Set
-from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, QThreadPool, Qt
-from PyQt6.QtWidgets import QComboBox
+from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, QThreadPool, Qt # type: ignore
+from PyQt6.QtWidgets import QComboBox # type: ignore
 
 from ..utils.logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_WARNING
 from ..core.constants import (
@@ -287,6 +287,9 @@ class OneRing(QObject, LoggingMixin):
             
             # Box 3: Inhuman Abilities (Keyword payloads — the actual power applied)
             powers = self.controller._keyword_cache.get(category.upper(), [])
+            # Slot injection for armor categories
+            if category.upper() in {"ARMA", "ARMO"}:
+                powers.extend(self.controller._keyword_cache.get("SLOT", []))
             panel.value_combo.addItem("")
             panel.value_combo.addItems(powers)
             

@@ -77,10 +77,10 @@ OUTPUT_TYPES = [
 
 
 # SkyPatcher actually patches these core record types (based on user documentation)
-SKYPATCHER_SUPPORTED_RECORD_TYPES = [
-    "AMMO", "ARMO", "BOOK", "CONT", "FLST", "INGR", 
-    "LVLI", "LVLN", "ALCH", "NPC_", "RACE", "SPEL", "WEAP"
-]
+SKYPATCHER_SUPPORTED_RECORD_TYPES = (
+    "NPC_", "WEAP", "ARMO", "AMMO", "ALCH", "BOOK", "MISC", "INGR", "KEYM",
+    "FURN", "LVLI", "LVLC", "CONT", "SPEL", "RACE", "FLST", "ARMA"
+)
 
 # BOS supports all base-object-swappable record types (comprehensive list)
 BOS_SUPPORTED_RECORD_TYPES = [
