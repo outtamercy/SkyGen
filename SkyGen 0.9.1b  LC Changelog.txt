@@ -1,0 +1,23 @@
+SkyGen 0.9.1b Changelog
+LC / Classification
+
+    BLESSED_CORE_FILES split: Base game masters remain sacred; CC mods are no longer unconditionally blessed
+    Added HDPT, HAIR to SKYPATCHER_SUPPORTED_RECORD_TYPES, BOS_SUPPORTED_RECORD_TYPES, OBJECT_SIGS, LOGIC_SIGS
+    LearningCore._calculate_score() tightened: content anchor (-40 penalty for real game objects), global hit threshold lowered to >= 1, tiny pure-logic gate capped at 500KB, ratio check gated behind content-anchor absence
+    frankensnoop.py now imports OBJECT_SIGS / LOGIC_SIGS from constants instead of hardcoded stubs
+
+Silo / Manifest
+
+    Added GLOBAL silo to PM emit pipeline: _filter_global_silo(), _save_silo_cache(), _load_silo_cache(), refresh_silos() cache path, and controller._rich_silos
+    generate_audit_cache() no longer hardcodes startswith('cc') blessed shield — trusts manifest is_blessed flag
+    _filter_global_silo() includes all layer=global mods (blessed + framework) so base game masters are visible under Global filter
+
+Blacklist / Auditor
+
+    bl_mgr.py get_mod_status() no longer hardcodes BLESSED_CORE_FILES check — reads from manifest entry / audit cache
+    auditor_dialog.py AE tier gated with entry.is_blessed guard so non-blessed AE mods fall through to CC classification
+    auditor_dialog.py CC tier now shows [CC-Framework] or [CC-Content] based on LC classification instead of unconditional [BLESSED-CC]
+
+UI / Memory
+
+    feedback.py StatusLogWidget switched to setMaximumBlockCount(1000) — fixes memory leak from unbounded QTextEdit growth
