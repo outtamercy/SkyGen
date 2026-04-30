@@ -127,9 +127,17 @@ class PatchAndConfigGenerationManager(LoggingMixin):
 
                 # --- MODE 2: ML GEN ---
                 elif generate_modlist:
-                    if has_sentence_builder and sb_filter and sb_action and sb_value:
+                    # auto-filter from record type — SB is disabled in ML mode so can't rely on it
+                    auto_filter = target_rec.get(
+                        "sp_filter",
+                        SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
+                    )
+                    auto_action = FILTER_TO_ACTIONS.get(auto_filter, ["addKeywords"])[0]
+                    keyword_value = target_rec.get("keyword_value")
+                
+                    if keyword_value:
                         lines.append(
-                            f"{sb_filter}={origin_plugin}|{local_id}:{sb_action}={sb_value}"
+                            f"{auto_filter}={origin_plugin}|{local_id}:{auto_action}={keyword_value}"
                         )
                         lines.append("")
                     else:

@@ -406,6 +406,12 @@ class OneRing(QObject, LoggingMixin):
                         rich_plugins = all_silos[nested_key]
                     else:
                         rich_folders = all_silos[nested_key]
+
+        # Invert bridge so we can swap folder names for plugin names
+        folder_to_plugins: Dict[str, List[str]] = {}
+        if hasattr(self.controller, '_plugin_to_mod_bridge'):
+            for plugin_name, folder_name in self.controller._plugin_to_mod_bridge.items():
+                folder_to_plugins.setdefault(folder_name, []).append(plugin_name)
             
             # Flat fallback: keys are "BOS:Name" or "BOS_MOD:Name"
             if not rich_plugins and not rich_folders:
@@ -419,18 +425,28 @@ class OneRing(QObject, LoggingMixin):
         
         self.log_debug(f"BOS silos: plugins={len(rich_plugins)}, folders={len(rich_folders)}")
         
-        # ---- MERGE BOTH WELLS ----
+        # ---- MERGE: plugin names win, folder names only if pluginless ----
         merged = []
-        for name, entry in rich_plugins.items():
-            merged.append((name, _get(entry, 'lo_index', 9999), entry, True))
+        seen: Set[str] = set()
         
-        seen = {name for name, _, _, _ in merged}
-        for name, entry in rich_folders.items():
-            if name not in seen:
-                merged.append((name, _get(entry, 'lo_index', 9999), entry, False))
-                seen.add(name)
+        for folder_name, entry in rich_plugins.items():
+            plugins = folder_to_plugins.get(folder_name, [])
+            if plugins:
+                # Mod has plugins — show plugin name, not folder name
+                for plugin_name in sorted(plugins):
+                    if plugin_name not in seen:
+                        merged.append((plugin_name, _get(entry, 'lo_index', 9999), entry, True))
+                        seen.add(plugin_name)
+            else:
+                # Already keyed by plugin name or no bridge data — pass through
+                if folder_name not in seen:
+                    merged.append((folder_name, _get(entry, 'lo_index', 9999), entry, True))
+                    seen.add(folder_name)
         
-        merged.sort(key=lambda x: x[1])
+        for folder_name, entry in rich_folders.items():
+            if folder_name not in seen:
+                merged.append((folder_name, _get(entry, 'lo_index', 9999), entry, False))
+                seen.add(folder_name)
         
         # ---- CATEGORY FILTER ----
         if category_filter and category_filter.strip() and category_filter != "All":

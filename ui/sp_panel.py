@@ -324,11 +324,16 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         QTimer.singleShot(0, self._force_combo_refresh)
 
     def _force_combo_refresh(self) -> None:
-        """Kick Qt to build the internal view — Filter and Value both ghost without this."""
-        for combo in (self.filter_combo, self.value_combo):
+        """Kick Qt to build the internal view — all three ghost without this."""
+        for combo in (self.filter_combo, self.action_combo, self.value_combo):
             if combo.isVisible() and combo.isEnabled() and combo.count() > 0:
                 combo.showPopup()
                 combo.hidePopup()
+        
+        # cursor reset for value so placeholder doesn't look dead
+        le = self.value_combo.lineEdit()
+        if le and not self.value_combo.currentText():
+            le.setCursorPosition(0)
         
         # Cursor reset for value so placeholder doesn't look dead
         le = self.value_combo.lineEdit()
