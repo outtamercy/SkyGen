@@ -64,7 +64,7 @@ class StatusLogWidget(QGroupBox, LoggingMixin):
             Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
         main_layout.addWidget(self.log_display)
-        self._max_lines = 1000  # Prevent unbounded growth during long generations
+        self.log_display.setMaximumBlockCount(1000)  # Qt ring buffer — auto-replaces from top
     # ------------------------------------------------------------------
     #  NEW – single public entry point
     # ------------------------------------------------------------------
@@ -110,13 +110,7 @@ class StatusLogWidget(QGroupBox, LoggingMixin):
             self.log_display.verticalScrollBar().maximum()
         )
         
-        # Prevent memory bloat: max 1000 lines
-        doc = self.log_display.document()
-        if doc.blockCount() > 1000:
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            cursor.select(QTextCursor.SelectionType.BlockUnderCursor)
-            cursor.removeSelectedText()
-            cursor.deleteChar()  # Remove newline
+        # Qt handles truncation via MaximumBlockCount — no manual cleanup needed
 
     # ------------------------------------------------------------------
     #  Colour helper

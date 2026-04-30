@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Dict, Set, Optional, Any, List, TYPE_CHECKING
 from dataclasses import dataclass
-from PyQt6.QtCore import QObject
+from PyQt6.QtCore import QObject # type: ignore
 from ..utils.logger import LoggingMixin, MO2_LOG_DEBUG, MO2_LOG_WARNING, MO2_LOG_INFO
 from ..utils.sigsnoop import PluginDNA, quick_sniff
 from ..core.constants import (
@@ -69,12 +69,15 @@ class BlacklistManager(LoggingMixin):
             )
         
         # === TIER 0: BLESSED CORE ===
-        # CC FIX: Use original plugin_name for blessed check, not lowercased version
-        if plugin_name.lower() in [p.lower() for p in BLESSED_CORE_FILES]:
+        # Single source of truth: manifest entry or audit cache, not hardcoded constants
+        entry = self.profile_mgr.get_plugin_data(plugin_name)
+        if entry and entry.is_blessed:
             return ModStatus(True, plugin_name, COLOR_ACTIVE, ICON_NONE, "vanilla")
         
         audit = self.profile_mgr.get_audit_cache()
-        baseline = audit.get(plugin_name, {})  # Key lookup uses original casing from audit
+        baseline = audit.get(plugin_name, {})
+        if baseline.get('is_blessed', False):
+            return ModStatus(True, plugin_name, COLOR_ACTIVE, ICON_NONE, "vanilla")
         display_name = baseline.get('display_name', plugin_name)  # Falls back to original if missing
         status = baseline.get('status', 'active')
         reason = baseline.get('reason', 'content')

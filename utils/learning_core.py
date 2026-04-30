@@ -159,18 +159,16 @@ class LearningCore(LoggingMixin):
 
         # --- Archive Mass Check (Asset Anchor) ---
         # Massive BSA + few records = Content mod, NOT framework
-        # Prevents blacklisting Project Clarity types
         bsa_size = getattr(dna, 'bsa_size', 0)
         record_count = len(sigs)
-        
         if bsa_size > (100 * 1024 * 1024) and record_count < 50:
-            score = 0  # Zero framework likelihood
+            score = 0
             reasons.append(f"Asset anchor: {bsa_size/(1024*1024):.0f}MB BSA, {record_count} records")
             # Fall through to normal layer assignment - don't return early
-            #         
-        # Heavy global = framework
-        if len(global_hits) > 2:
-            score += len(global_hits) * 8
+
+        # Heavy global = framework (one hit is enough, but it hits harder)
+        if len(global_hits) >= 1:
+            score += len(global_hits) * 15
             reasons.append(f"Global signatures: {','.join(global_hits)}")
         
         # Masters only = utility
@@ -186,6 +184,13 @@ class LearningCore(LoggingMixin):
             score += 15
             reasons.append("Moderate scripts")
         
+        # --- Tiny Pure Logic Mod ---
+        # Only flag as pure logic if it's SMALL (< 2MB) AND has no content objects
+        # A 200MB texture overhaul isn't pure logic. A 50KB patcher ESP is.
+        if not dna.object_signatures and dna.logic_signatures and dna.file_size < 2 * 1024 * 1024:
+            score += 35
+            reasons.append("Tiny pure logic mod — zero content objects")
+
         # --- Folder Scents ---
         scent_bonus = 0
         for scent, penalty in self.SCENT_PENALTIES.items():

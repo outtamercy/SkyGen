@@ -3,13 +3,13 @@
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from PyQt6.QtWidgets import (
+from PyQt6.QtWidgets import ( # type: ignore
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QPushButton, QLabel, QLineEdit, QComboBox, QSplitter, QWidget,
     QAbstractItemView, QFrame, QCheckBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject
-from PyQt6.QtGui import QColor, QBrush, QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, QTimer # type: ignore
+from PyQt6.QtGui import QColor, QBrush, QFont # type: ignore
 
 from ..utils.logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_DEBUG
 from ..utils.bl_mgr import  ModStatus
@@ -53,7 +53,7 @@ class ModListItem(QListWidgetItem):
             self.setCheckState(Qt.CheckState.Checked if is_blacklisted else Qt.CheckState.Unchecked)
         
         # Color handling
-        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtWidgets import QApplication # type: ignore
         palette = parent.palette() if parent else QApplication.instance().palette()
         if status.color == COLOR_ACTIVE:
             text_color = palette.color(palette.ColorRole.Text)
@@ -290,14 +290,25 @@ class BlacklistAuditorDialog(QDialog, LoggingMixin):
                             reason = "blessed"
                             display_name = f"{plugin_name} [BLESSED-BASE]"
                     
-                    # Tier 1: CC mods
-                    elif plugin_lower.startswith(OFFICIAL_CC_PREFIX):
-                            if not self.chk_cc.isChecked():
-                                    continue
+                    # Tier 1: CC mods — visible but LC-classified, not hard-locked
+                    if plugin_lower.startswith(OFFICIAL_CC_PREFIX):
+                        if not self.chk_cc.isChecked():
+                            continue
+                        if entry and entry.is_blessed:
                             icon = f"{ICON_BLESSED}{ICON_LOCKED}"
                             color = COLOR_LOCKED
                             reason = "blessed"
                             display_name = f"{plugin_name} [BLESSED-CC]"
+                        elif entry and entry.is_framework:
+                            icon = ICON_LOCKED
+                            color = COLOR_LOCKED
+                            reason = "framework"
+                            display_name = f"{plugin_name} [CC-Framework]"
+                        else:
+                            icon = ICON_NONE
+                            color = COLOR_ACTIVE
+                            reason = "active"
+                            display_name = f"{plugin_name} [CC-Content]"
                     
                     # Tier 2: Auto-blacklist
                     elif self.siloed_snoop.blacklist_mgr._auto_blacklist.get(plugin_lower):
@@ -386,7 +397,6 @@ class BlacklistAuditorDialog(QDialog, LoggingMixin):
                     self.mod_list.addItem(item)
             
             # Next bite in 10ms - keeps UI breathing
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(10, self._populate_chunk)       
 
     def _detect_current_rule(self, status: ModStatus) -> str:

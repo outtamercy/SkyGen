@@ -4,7 +4,7 @@ from typing import Dict, Set, Optional, Any, List, Tuple
 from dataclasses import dataclass, asdict, field
 import configparser
 import subprocess
-from PyQt6.QtCore import QObject, pyqtSignal, QThread  
+from PyQt6.QtCore import QObject, pyqtSignal, QThread   # type: ignore
 from .logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_WARNING
 from .bl_mgr import BlacklistManager, ModStatus  # Runtime import
 from .sigsnoop import PluginDNA, quick_sniff, batch_sniff
@@ -155,6 +155,7 @@ class ProfileManager(QObject, LoggingMixin):
                 self.silo_data_ready.emit("SP", cache.get("SP", {}))
                 self.silo_data_ready.emit("BOS_MODS", cache.get("BOS_MODS", {}))
                 self.silo_data_ready.emit("BOS_PLUGINS", cache.get("BOS_PLUGINS", {}))
+                self.silo_data_ready.emit("GLOBAL", cache.get("GLOBAL", {}))
                 self.scan_complete.emit(True)
                 return
     
@@ -220,17 +221,19 @@ class ProfileManager(QObject, LoggingMixin):
         # Build rich dicts from manifest
         sp_rich = self._filter_sp_silo(list(self._manifest.keys()))
         bos_mods_rich, bos_plugins_rich = self._filter_bos_silo(list(self._manifest.keys()))
+        global_rich = self._filter_global_silo(list(self._manifest.keys()))
         
         self.log_info(
             f"EMIT_RAW: SP={len(sp_rich)}, BOS_MODS={len(bos_mods_rich)}, "
-            f"BOS_PLUGINS={len(bos_plugins_rich)}"
+            f"BOS_PLUGINS={len(bos_plugins_rich)}, GLOBAL={len(global_rich)}"
         )
         
         # Cache and emit
         current_sig = self._get_loadorder_signature()
-        self._save_silo_cache(sp_rich, bos_mods_rich, bos_plugins_rich, current_sig)
+        self._save_silo_cache(sp_rich, bos_mods_rich, bos_plugins_rich, global_rich, current_sig)
         
         # Emit the rich data - let OR sort by lo_index if it wants order
+        self.silo_data_ready.emit("GLOBAL", global_rich)
         self.silo_data_ready.emit("SP", sp_rich)
         self.silo_data_ready.emit("BOS_MODS", bos_mods_rich)
         self.silo_data_ready.emit("BOS_PLUGINS", bos_plugins_rich)  # Back from retirement, but rich
@@ -288,8 +291,7 @@ class ProfileManager(QObject, LoggingMixin):
             else:
                 stats["success"] += 1
             
-            is_blessed = (plugin_name.lower() in [p.lower() for p in BLESSED_CORE_FILES] or 
-                         plugin_name.lower().startswith('cc') and 'cc' in plugin_name.lower())
+            is_blessed = plugin_name.lower() in [p.lower() for p in BLESSED_CORE_FILES]
             
             # Build entry from DNA
             entry = ManifestEntry(
@@ -398,6 +400,17 @@ class ProfileManager(QObject, LoggingMixin):
         # Single disk hit for the whole batch
         if hasattr(self.blacklist_mgr, '_save_auto_blacklist'):
             self.blacklist_mgr._save_auto_blacklist()
+
+    def _filter_global_silo(self, all_plugins: List[str]) -> Dict[str, ManifestEntry]:
+        """All global-layer mods — blessed base game + framework."""
+        if not self._manifest:
+            return {}
+        rich_silo: Dict[str, ManifestEntry] = {}
+        for plugin_name, entry in self._manifest.items():
+            if entry.layer == "global":
+                rich_silo[plugin_name] = entry
+        self.log_info(f"GLOBAL_FILTER: {len(rich_silo)} global-layer plugins")
+        return rich_silo
 
     def _filter_sp_silo(self, all_plugins: List[str]) -> Dict[str, ManifestEntry]:
         """Return rich {plugin_name: ManifestEntry} for SP-eligible content."""
@@ -537,6 +550,7 @@ class ProfileManager(QObject, LoggingMixin):
     def _save_silo_cache(self, sp_entries: Dict[str, ManifestEntry], 
                          bos_mods: Dict[str, ManifestEntry],
                          bos_plugins: Dict[str, ManifestEntry],
+                         global_entries: Dict[str, ManifestEntry],
                          signature: str) -> None:
         """Write rich v3 format - one section per plugin with full DNA."""
         cache_path = self._get_silo_cache_path()
@@ -549,10 +563,11 @@ class ProfileManager(QObject, LoggingMixin):
             config.set('_meta', 'saved_at', str(time.time()))
             config.set('_meta', 'profile', self.wrapper.profile_name)
             config.set('_meta', 'format', 'rich_v3')
+            config.set('_meta', 'global_count', str(len(global_entries)))
             config.set('_meta', 'sp_count', str(len(sp_entries)))
             config.set('_meta', 'bos_mod_count', str(len(bos_mods)))
             config.set('_meta', 'bos_plugin_count', str(len(bos_plugins)))
-        
+
             # Helper to dump a ManifestEntry into a section
             def dump_entry(section: str, entry: ManifestEntry, silo_type: str):
                 config.add_section(section)
@@ -587,11 +602,15 @@ class ProfileManager(QObject, LoggingMixin):
             # Dump BOS plugins (full entries)
             for name, entry in bos_plugins.items():
                 dump_entry(f"BOS:{name}", entry, 'BOS')
+            
+            # Dump global entries
+            for name, entry in global_entries.items():
+                dump_entry(f"GLOBAL:{name}", entry, 'GLOBAL')
         
             with open(cache_path, 'w', encoding='utf-8') as f:
                 config.write(f)
             
-            self.log_info(f"Rich silo cached: {len(sp_entries)} SP, {len(bos_mods)} BOS mods, {len(bos_plugins)} BOS plugins")
+            self.log_info(f"Rich silo cached: {len(sp_entries)} SP, {len(bos_mods)} BOS mods, {len(bos_plugins)} BOS plugins, {len(global_entries)} GLOBAL")
         
         except Exception as e:
             self.log_warning(f"Rich silo cache write failed: {e}")
@@ -616,6 +635,7 @@ class ProfileManager(QObject, LoggingMixin):
                     "loadorder_signature": config.get('_meta', 'loadorder_signature', fallback=''),
                     "format": "rich_v3"
                 },
+                "GLOBAL": {},
                 "SP": {},
                 "BOS_MODS": {},
                 "BOS_PLUGINS": {}
@@ -653,8 +673,9 @@ class ProfileManager(QObject, LoggingMixin):
                         lc_score=config.getint(section, 'lc_score', fallback=50),
                         lc_confidence=config.get(section, 'lc_confidence', fallback='low')
                     )
-                    
-                    if silo_type == 'SP':
+                    if silo_type == 'GLOBAL':
+                        result["GLOBAL"][name] = entry                    
+                    elif silo_type == 'SP':
                         result["SP"][name] = entry
                     elif silo_type == 'BOS_MOD':
                         result["BOS_MODS"][name] = entry
@@ -901,7 +922,7 @@ class ProfileManager(QObject, LoggingMixin):
             # Respect LC layer assignment — source of truth
             if entry.layer == Layer.GLOBAL.value:
                 if entry.is_blessed:
-                    silos = ["SP", "BOS"]  # Base game masters carry everything
+                    silos = ["GLOBAL", "SP", "BOS"]  # Base game visible everywhere
                 else:
                     silos = ["GLOBAL"]
             elif entry.layer == Layer.BOS.value:
@@ -955,7 +976,6 @@ class ProfileManager(QObject, LoggingMixin):
             plugin_lower = plugin_name.lower()
             is_blessed = (entry.is_blessed or 
                          entry.file_hash.startswith('BLESSED_') or
-                         plugin_lower.startswith(OFFICIAL_CC_PREFIX) or
                          plugin_lower in [p.lower() for p in BLESSED_CORE_FILES])
             
             status = "active"

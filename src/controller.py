@@ -220,6 +220,7 @@ class SkyGenUIController(QObject):
 
         # Rich-native storage - PM emits full ManifestEntry objects now
         self._rich_silos: Dict[str, Dict[str, ManifestEntry]] = {
+            "GLOBAL": {},
             "SP": {}, 
             "BOS_MODS": {}, 
             "BOS_PLUGINS": {},

@@ -1,13 +1,13 @@
 ﻿from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from PyQt6.QtWidgets import (
+from PyQt6.QtWidgets import ( # type: ignore
     QWidget, QVBoxLayout, QGroupBox, QGridLayout, QLabel, QCheckBox,
     QComboBox, QLineEdit, QPushButton, QHBoxLayout, QToolButton,
-    QSizePolicy, QFileDialog, QSplitter, QTableWidget, 
+    QSizePolicy, QFileDialog, QSplitter, QTableWidget, QSpinBox,
     QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView, QCompleter
 )
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QFileSystemWatcher
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QFileSystemWatcher # type: ignore
 from ..utils.logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_WARNING, MO2_LOG_ERROR, MO2_LOG_DEBUG
 from .panel_base import PanelGeometryMixin
 from ..utils.bos_processor import BosProcessor
@@ -181,7 +181,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.stop_btn.setVisible(False)
         
         # DEFERRED: Wake combos after Qt finishes render
-        from PyQt6.QtCore import QTimer
+        from PyQt6.QtCore import QTimer # type: ignore
         QTimer.singleShot(50, self._wakeup_combos)
         
     def _wakeup_combos(self):
@@ -258,7 +258,6 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         cat_row.addWidget(self._m2m_cat_combo)
         cat_row.addSpacing(20)
         
-        from PyQt6.QtWidgets import QSpinBox
         self._m2m_chance_spin = QSpinBox()
         self._m2m_chance_spin.setRange(0, 100)
         self._m2m_chance_spin.setValue(100)
@@ -399,7 +398,6 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         btn_bar.addWidget(self.stop_btn)
        
         # Scan chance spinbox (Section 2 control)
-        from PyQt6.QtWidgets import QSpinBox
         self._scan_chance_spin = QSpinBox()
         self._scan_chance_spin.setRange(0, 100)
         self._scan_chance_spin.setValue(100)

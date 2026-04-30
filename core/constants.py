@@ -79,7 +79,7 @@ OUTPUT_TYPES = [
 # SkyPatcher actually patches these core record types (based on user documentation)
 SKYPATCHER_SUPPORTED_RECORD_TYPES = (
     "NPC_", "WEAP", "ARMO", "AMMO", "ALCH", "BOOK", "MISC", "INGR", "KEYM",
-    "FURN", "LVLI", "LVLC", "CONT", "SPEL", "RACE", "FLST", "ARMA"
+    "FURN", "LVLI", "LVLC", "CONT", "SPEL", "RACE", "FLST", "ARMA", "HDPT", "HAIR"
 )
 
 # BOS supports all base-object-swappable record types (comprehensive list)
@@ -88,7 +88,8 @@ BOS_SUPPORTED_RECORD_TYPES = [
     "SCEN", "REGN", "CONT", "MISC", "ALCH", "AMMO", "ARMO", "ARMA", "BOOK",
     "INGR", "KEYM", "SCRL", "SLGM", "SPEL", "WEAP", "TXST", "EFSH", "EXPL",
     "PROJ", "DEBR", "HAZD", "IDLE", "PACK", "CSTY", "LCTN", "WTHR", "CLMT",
-    "WATR", "SNDR", "SNCT", "IMGS", "IMAD", "LSCR", "ANIO", "WRLD", "CELL"
+    "WATR", "SNDR", "SNCT", "IMGS", "IMAD", "LSCR", "ANIO", "WRLD", "CELL",
+    "HDPT", "HAIR"
 ]
 
 # Reverse mapping: signature → list of categories (SP categories mandatory, BOS optional)
@@ -199,8 +200,9 @@ AE_CORE_FILES = {
 }
 
 # Combined shield for UI/Auditor/PM - union of both sets
-BLESSED_CORE_FILES = BASE_GAME_PLUGINS.union(AE_CORE_FILES)
-
+# NEW — base game only is sacred
+BLESSED_CORE_FILES = BASE_GAME_PLUGINS
+# AE_CORE_FILES stays as its own set for reference
 BLESSED_HASH_PREFIX = "BLESSED_"
 
 BLACKLIST_AUTHORS = {
@@ -253,7 +255,10 @@ OFFICIAL_CC_PREFIX = "cc"  # All CC mods start with "cc"
 # Prevents double-dipping like BLESSED_CORE union pattern.
 # Tier 1: Exact filename matches (O(1)) - catches known globals
 # Tier 2: Regex patterns (O(n)) - catches VR/SE/AE variants, new formats
-
+# ==================================================================
+# GLOBAL_FRAMEWORK_SIGNATURES AND SCENT_PATTERNS are mutually exclusive - if a plugin matches Tier 1, Tier 2 is skipped
+# ==================================================================
+# This ensures that well-known frameworks are always caught by the fast exact match, while still allowing for flexible detection of new or variant plugins without bloating the blacklist with every possible filename.
 # Tier 1: Hardcoded exact matches - never patchable, never change
 GLOBAL_IGNORE_PLUGINS = {
     "AddItemMenuSE.esp",
@@ -301,6 +306,14 @@ GLOBAL_FRAMEWORK_SIGNATURES = {
     'DLBR', 'GMST', 'KYWD',  # GMST game settings, KYWD if keywords-only
 }
 
+LOGIC_SIGS = {"QUST", "MGEF", "KYWD", "VMAD", "SCRP", "DLBR", "INFO", "DIAL", "GMST"}
+OBJECT_SIGS = {
+    "ARMO", "WEAP", "NPC_", "STAT", "FURN", "MISC", "CONT", "LIGH", 
+    "ALCH", "BOOK", "AMMO", "TXST", "TREE", "FLOR", "MSTT", "HAIR", 
+    "HDPT", "ARMA", "WRLD", "CELL", "GRAS", "ACTI", "DOOR", "INGR",
+    "SLGM", "SCRL", "SPEL", "KEYM", "PROJ", "EXPL"
+}
+
 # ============================================
 # BOS SIGNATURES - Pluginless Body Mod Support
 # ============================================
@@ -330,7 +343,9 @@ CONTENT_SCENTS = {
     "SkinTextures": re.compile(r'textures[/\\]actors[/\\]character', re.I),
     "MeshAssets": re.compile(r'meshes[/\\]actors[/\\]character', re.I),
 }
-
+# ==================================================================
+# [SP] SIGNATURES AND FILTERS - For SkyPatcher INI Generation]
+# ==================================================================
 SP_SIGNATURES = {
     "KYWD", "LVLI", "NPC_", "ARMO", "WEAP", 
     "FLST", "ALCH", "AMMO", "BOOK", "MISC",
