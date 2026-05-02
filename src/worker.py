@@ -113,9 +113,18 @@ class GenerationWorker(QRunnable, LoggingMixin):
             self.log_error("Patch settings not initialized")
             return []
         
-        # Modlist or all-categories mode: use filtered silo (already BL-screened)
-        if getattr(self.patch_settings, 'generate_modlist', False) or getattr(self.patch_settings, 'generate_all_categories', False):
-            self.log_debug("Mode: modlist – using filtered silo targets")
+        # Explicit mode lock — no bleed
+        is_allcats = getattr(self.patch_settings, 'generate_all_categories', False)
+        is_modlist = getattr(self.patch_settings, 'generate_modlist', False)
+        
+        if is_allcats and is_modlist:
+            self.log_warning("MODE_BLEED_GET_SELECTED: both True — forcing all-cats")
+            is_modlist = False
+        
+        # Mass modes: use filtered silo (already BL-screened)
+        if is_allcats or is_modlist:
+            mode_name = "allcats" if is_allcats else "modlist"
+            self.log_debug(f"Mode: {mode_name} — using filtered silo targets")
             if self.target_plugins:
                 return list(self.target_plugins)
             self.log_warning("No target_plugins injected by controller - empty return")
@@ -206,14 +215,30 @@ class GenerationWorker(QRunnable, LoggingMixin):
         lz4_block = getattr(self.patch_settings, 'use_fast_scan', True)
         reader_instance = PluginReader(self.organizer_wrapper) if (generate_modlist or generate_all_categories) else None
 
-        # Mode 1: Single plugin/category — direct extraction + LMW merge
-        if not generate_all_categories and not generate_modlist:
+        # ✅ CURE: Explicit mode resolution — no elif bleed possible
+        generate_all_categories = getattr(self.patch_settings, 'generate_all_categories', False)
+        generate_modlist = getattr(self.patch_settings, 'generate_modlist', False)
+        
+        # Guard against impossible state — log and force priority
+        if generate_all_categories and generate_modlist:
+            self.log_warning("MODE_BLEED: both all-cats and modlist True — forcing all-cats")
+            generate_modlist = False
+        
+        if generate_all_categories:
+            mode = "allcats"
+        elif generate_modlist:
+            mode = "modlist"
+        else:
+            mode = "single"
+        
+        self.log_info(f"MODE_LOCKED: {mode}")
+
+        # Extract based on locked mode
+        if mode == "single":
             target_name = selected_plugins[0] if selected_plugins else ""
             source_name = selected_plugins[1] if len(selected_plugins) > 1 else ""
             self.log_info(f"Single mode: Target={target_name}, Source={source_name}, Category={target_category}")
             
-            # Extract target records
-            # Route single mode through DE — fresh extraction, correct origins
             de_records = self.data_exporter.export_plugin_data(
                 plugin_names_to_extract=selected_plugins,
                 game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
@@ -225,7 +250,6 @@ class GenerationWorker(QRunnable, LoggingMixin):
             if de_records is None:
                 de_records = []
             
-            # LMW: last plugin in list wins (source over target)
             merged_by_fid = {}
             for rec in de_records:
                 fid = rec.get('form_id')
@@ -235,8 +259,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
             extracted_records = list(merged_by_fid.values())
             self.log_info(f"Single mode complete: {len(extracted_records)} records (DE returned {len(de_records)})")
 
-        # Mode 2: Modlist — DE owns this, not us
-        elif generate_modlist and target_category:
+        elif mode == "modlist":
             self.log_info(f"Modlist mode: DE grinding {len(selected_plugins)} plugins for {target_category}")
             de_records = self.data_exporter.export_plugin_data(
                 plugin_names_to_extract=selected_plugins,
@@ -251,8 +274,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
             extracted_records = de_records
             self.log_info(f"Modlist: DE returned {len(extracted_records)} records")
 
-        # Mode 3: All categories — DE owns this, not us
-        elif generate_all_categories:
+        elif mode == "allcats":
             self.log_info(f"All-cats mode: DE grinding {len(selected_plugins)} plugins")
             de_records = self.data_exporter.export_plugin_data(
                 plugin_names_to_extract=selected_plugins,
@@ -260,6 +282,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
                 target_category=target_category,
                 worker_instance=self,
                 use_fast_scan=False,
+                generate_all_categories=True,
                 progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
             )
             if de_records is None:
@@ -269,6 +292,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
 
         else:
             return False, "No generation mode selected"
+        
         self.log_info(f"TARGET_AUDIT: patch_settings.target_mod='{self.patch_settings.target_mod}'")
         self.log_info(f"SOURCE_AUDIT: patch_settings.source_mod='{self.patch_settings.source_mod}'")
         if self._interrupted:
@@ -333,19 +357,6 @@ class GenerationWorker(QRunnable, LoggingMixin):
                 sp_action_type=pg_sb_action,
                 sp_value_formid=pg_sb_value,
             )
-            
-            # Cache vault lock: Store records for instant replay
-            if success and self.cache_manager and kept_records:
-                cache_key = self.cache_manager.generate_key(
-                    plugins=self._get_selected_plugins(),
-                    category=self.patch_settings.category if not self.patch_settings.generate_all_categories else None,
-                    target_mod=self.patch_settings.target_mod,
-                    source_mod=self.patch_settings.source_mod
-                )
-                self.log_info(f"Locking {len(kept_records)} records into vault (key: {cache_key[:16]}...)")
-                self.cache_manager.save_to_cache(cache_key, kept_records)
-                self.log_info("Cache locked successfully")
-
 
         # ------------------------------------------------------------------
         # 4. finish

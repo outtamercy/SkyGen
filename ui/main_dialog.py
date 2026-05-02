@@ -64,7 +64,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self._almendra_font = None
         
         if font_dir.exists():
-            from PyQt6.QtGui import QFontDatabase, QFont
+            from PyQt6.QtGui import QFontDatabase, QFont # type: ignore
             
             eagle_id = QFontDatabase.addApplicationFont(str(font_dir / "EagleLake-Regular.ttf"))
             if eagle_id != -1:
@@ -129,6 +129,9 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         # ---------- close-event guard ----------
         self._flushed = False
         self._startup_complete = False
+
+        # track MO2 profile for swap detection
+        self._last_profile = self.organizer_wrapper.profile_name
 
     def set_startup_complete(self) -> None:
         """Mark dialog as ready to be shown by controller."""
@@ -235,6 +238,47 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
             event.ignore()
             return
         super().showEvent(event)
+        
+        # catch profile swaps — re-read MO2 INI directly, no API
+        current_profile = self.organizer_wrapper.refresh_profile()
+        if getattr(self, '_last_profile', None) and self._last_profile != current_profile:
+            self.log_info(f"Profile switch: {self._last_profile} -> {current_profile}")
+            # rebuild config manager for new profile
+            config_dir = Path(__file__).resolve().parent.parent / "data"
+            self.config_manager = ConfigManager(
+                self.file_ops,
+                config_dir / PLUGIN_CONFIG_FILE_NAME,
+                self.organizer_wrapper.profile_name,
+            )
+            # reseal welcome — force fresh scan
+            ac = self.config_manager.get_application_config()
+            ac.welcome_acknowledged = False
+            ac.welcome_load_order_sig = ""
+            self.config_manager.save_application_config(ac)
+            # nuke PM so Frankie rebuilds from scratch
+            if self.controller:
+                self.controller._pm_init_done = False
+                self.controller._pm_ready = False
+                self.controller._pm_signals_wired = False
+                self.controller.profile_manager = None
+                self.controller.siloed_snoop = None
+                if hasattr(self.controller, '_rich_silos'):
+                    self.controller._rich_silos.clear()
+                if hasattr(self.controller, '_plugin_to_mod_bridge'):
+                    self.controller._plugin_to_mod_bridge.clear()
+                # fire up Frankie immediately
+                self.controller._deferred_pm_init()
+            # reset geometry
+            self._geometry_restored = False
+            self._geometry_fully_restored = False
+            # drop back to welcome
+            self.panel_stack.setCurrentWidget(self.welcome_panel)
+            self.game_version_group.setVisible(False)
+            self.output_type_group.setVisible(False)
+            self.advanced_settings_group.setVisible(False)
+            self._last_profile = current_profile
+            return
+        self._last_profile = current_profile
         
         # PM guard - panels will retry if PM not ready
         if (hasattr(self, 'controller') and self.controller and 
@@ -412,6 +456,11 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         # keep only dev/debug stuff here
         self.debug_logging_checkbox = QCheckBox("Enable Debug Logging")
         self.traceback_logging_checkbox = QCheckBox("Enable Traceback Logging")
+        self.loom_enabled_checkbox = QCheckBox("Enable Loom Auto-Keywords")
+        self.loom_enabled_checkbox.setToolTip("Auto-weave keywords from record DNA — disables manual Sentence Builder")
+        ac = self.config_manager.get_application_config()
+        self.loom_enabled_checkbox.setChecked(getattr(ac, 'loom_enabled', False))
+
         ac = self.config_manager.get_application_config()
         if not DEBUG_MODE:
             self.debug_logging_checkbox.setChecked(ac.debug_logging)
@@ -425,19 +474,35 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         else:
             self.traceback_logging_checkbox.setChecked(True)
             self.traceback_logging_checkbox.setEnabled(False)
-        dev_layout.addWidget(self.debug_logging_checkbox)
-        dev_layout.addWidget(self.traceback_logging_checkbox)
-        
-        # <-- ADD: Single Audit button (context-aware)
-        self.audit_btn = QPushButton("🔍 Audit")
+
         # Panic button — when config feels haunted, smash it
         self._panic_btn = QPushButton("💾 Config Panic Button")
         self._panic_btn.setToolTip("Emergency save — writes config to disk immediately")
         self._panic_btn.clicked.connect(self._on_panic_flush)
-        dev_layout.addWidget(self._panic_btn)
+        # Audit button — context-aware
+        self.audit_btn = QPushButton("🔍 Audit")
         self.audit_btn.setToolTip("Blacklist Auditor")
         self.audit_btn.clicked.connect(self._on_audit_clicked)
-        dev_layout.addWidget(self.audit_btn)
+
+        # row: checkboxes on the left, action buttons on the right
+        controls_row = QHBoxLayout()
+        
+        # left column — toggles
+        checks_col = QVBoxLayout()
+        checks_col.addWidget(self.debug_logging_checkbox)
+        checks_col.addWidget(self.traceback_logging_checkbox)
+        checks_col.addWidget(self.loom_enabled_checkbox)
+        checks_col.addStretch()
+        controls_row.addLayout(checks_col)
+        
+        # right column — buttons
+        buttons_col = QVBoxLayout()
+        buttons_col.addWidget(self._panic_btn)
+        buttons_col.addWidget(self.audit_btn)
+        buttons_col.addStretch()
+        controls_row.addLayout(buttons_col)
+        
+        dev_layout.addLayout(controls_row)
 
         lay.addWidget(self.dev_container)
 
@@ -891,6 +956,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.controller.traceback_logging_checkbox = self.traceback_logging_checkbox
         if self.controller is None:
             return
+
         self.log_debug("WIRE_CONTROLLER called – handing live widgets to controller.")
         self.controller.set_ui_widgets_for_access({
             "sp_panel": self.sp_panel,

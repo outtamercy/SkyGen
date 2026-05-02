@@ -13,7 +13,7 @@ import sys
 import tempfile
 import subprocess
 import platform          # NEW – for Windows-only hide
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread # type: ignore
 
 from ..utils.logger import LoggingMixin
 from ..core.constants import (MO2_LOG_DEBUG, MO2_LOG_INFO, MO2_LOG_WARNING, MO2_LOG_ERROR, MO2_LOG_CRITICAL, 
@@ -53,7 +53,7 @@ class PluginExtractor(LoggingMixin):
 
         self.organizer_wrapper = organizer_wrapper
         self.active_plugins = active_plugins
-        self._fallback_load_order = None
+        # _fallback_load_order is dead — silo owns the truth now
         self.log_info("PluginExtractor initialized.")
 
         plugin_root = Path(__file__).parent.parent
@@ -108,51 +108,45 @@ class PluginExtractor(LoggingMixin):
             # Yield GIL every 100 sub-records
             parsed_count += 1
             if parsed_count % 100 == 0:
-                from PyQt6.QtCore import QThread
+                from PyQt6.QtCore import QThread # type: ignore
                 QThread.msleep(0)
 
             sub_tag = record_content[current_pos:current_pos+4]
-            sub_length = self._read_le_uint16(record_content, current_pos + 4)
-            sub_value_start = current_pos + 6
 
-            if sub_length < 0 or sub_value_start + sub_length > len(record_content):
+            # XXXX = next subrecord carries a 32-bit length instead of 16-bit
+            if sub_tag == b'XXXX':
+                if current_pos + 8 > len(record_content):
+                    break
+                sub_length = self._read_le_uint32(record_content, current_pos + 4)
+                current_pos += 8
+                if current_pos + 4 > len(record_content):
+                    break
+                sub_tag = record_content[current_pos:current_pos+4]
+                current_pos += 6  # skip tag + dummy 2-byte length field
+            else:
+                sub_length = self._read_le_uint16(record_content, current_pos + 4)
+                current_pos += 6
+
+            if sub_length < 0 or current_pos + sub_length > len(record_content):
                 self.log_warning(f"  Invalid sub-record length for {sub_tag.decode(errors='ignore')} (length {sub_length}) at offset {current_pos}. Content length: {len(record_content)}. Skipping remaining sub-records for this record.")
                 break
 
-            sub_value = record_content[sub_value_start : sub_value_start + sub_length]
+            sub_value = record_content[current_pos : current_pos + sub_length]
+            current_pos += sub_length
             
-            # 🔥 Trace level to prevent 30MB logs
-            #self.log_trace(f"    Parsing sub-record: Tag={sub_tag.decode(errors='ignore')}, Length={sub_length}, Offset={current_pos}")
-
-            try:
-                if sub_tag == b'EDID' or sub_tag == b'FULL' or sub_tag == b'CNAM' or sub_tag == b'SNAM':
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = sub_value.decode('utf-8', errors='ignore').strip('\x00')
-                elif sub_tag == b'MODL':
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = sub_value.decode('utf-8', errors='ignore').strip('\x00')
-                elif sub_tag == b'DATA' and len(sub_value) == 4:
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = struct.unpack('<f', sub_value)[0]
-                elif sub_tag == b'DATA' and len(sub_value) == 8:
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = struct.unpack('<Q', sub_value)[0]
-                elif sub_tag == b'KWDA':
-                    keywords = []
-                    for i in range(0, len(sub_value), 4):
-                        if i + 4 <= len(sub_value):
-                            keywords.append(f"{self._read_le_uint32(sub_value, i):08X}")
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = keywords
-                elif sub_tag == b'ATXT':
-                    # ATXT is a list of formIDs, ensure it's a list of hex strings
-                    keywords = []
-                    for i in range(0, len(sub_value), 4):
-                        if i + 4 <= len(sub_value):
-                            keywords.append(f"{self._read_le_uint32(sub_value, i):08X}")
-                    sub_records_data['ATXT'] = keywords  # This is now a list of strings
-                else:
-                    sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = sub_value
-            except Exception as e:
-                self.log_warning(f"  Error parsing sub-record {sub_tag.decode(errors='ignore')} (length {sub_length}) at offset {current_pos}: {type(e).__name__}: {e}. Storing as raw bytes.")
-                sub_records_data[sub_tag.decode('utf-8', errors='ignore')] = sub_value
-
-            current_pos += (6 + sub_length)
+            # actually keep the data instead of parsing into the void
+            tag_str = sub_tag.decode('ascii', errors='ignore')
+            if tag_str == 'ATXT':
+                # textures can show up multiple times — don't stomp
+                sub_records_data.setdefault('ATXT', []).append(sub_value)
+            elif tag_str in {'EDID', 'FULL', 'MODL', 'MOD2', 'MOD3', 'MOD4',
+                             'ICON', 'MICO', 'DESC', 'CNAM', 'SNAM', 'INAM'}:
+                # text fields — decode now so downstream doesn't choke on bytes
+                sub_records_data[tag_str] = sub_value.decode('ascii', errors='ignore').split('\0')[0].strip()
+            else:
+                # binary fields — DNAM, BODT, RNAM, KWDA, SPIT, etc.
+                sub_records_data[tag_str] = sub_value
+                
         return sub_records_data
 
     def _parse_record(self, f: Any, record_start_offset: int, record_signature: bytes, record_data_size: int, 
@@ -255,16 +249,9 @@ class PluginExtractor(LoggingMixin):
             master_plugin = origin_plugin 
         
         else:
-            # 🔥 Cache fallback to prevent 886 file reads
-            if self._fallback_load_order is None:
-                self._fallback_load_order = self.organizer_wrapper.read_loadorder_txt()
-            load_order = self._fallback_load_order
-            if load_order_index < len(load_order):
-                origin_plugin = load_order[load_order_index]
-                master_plugin = origin_plugin
-            else:
-                origin_plugin = "Unknown"
-                master_plugin = "Unknown"
+            # silo didn't cover this index — loud and honest, no text file sniffing
+            origin_plugin = "Unknown"
+            master_plugin = "Unknown"
 
         # Extract visual fields for bulk filter mode
         model = parsed_sub_records.get('MODL', '')
@@ -392,7 +379,10 @@ class PluginExtractor(LoggingMixin):
                 form_version = struct.unpack('<H', header[20:22])[0]
                 unknown_field = struct.unpack('<H', header[22:24])[0]
 
-                if sig not in {'NPC_', 'ARMO', 'WEAP', 'AMMO', 'BOOK', 'ALCH'}:
+                if sig not in {'NPC_', 'ARMO', 'WEAP', 'AMMO', 'BOOK', 'ALCH',
+                               'HAIR', 'HDPT', 'CONT', 'LIGH', 'MISC', 'KEYM',
+                               'FURN', 'SPEL', 'FLST', 'LVLI', 'LVLC', 'INGR',
+                               'SLGM', 'SCRL', 'RACE'}:
                     return None
 
                 return self._parse_record(

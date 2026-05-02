@@ -4,7 +4,7 @@ from typing import Iterator, Dict, Any, Optional, List, Tuple
 import zlib
 from functools import lru_cache
 from ..core.constants import GLOBAL_IGNORE_PLUGINS
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QThread # type: ignore
 HEADER_SIZE = 24
 COMPRESSED_FLAG = 0x00040000
 MAX_DECOMPRESS = 256 * 1024 * 1024  # Fix #9: 256 MB bomb cap
@@ -15,10 +15,8 @@ class PluginReader:
     def __init__(self, organizer: Any, active_plugins: Optional[List[str]] = None) -> None:
         self.organizer = organizer
         # Use provided list (audit cache) or fall back to text file
-        if active_plugins is not None:
-            self.active_plugins = active_plugins
-        else:
-            self.active_plugins = self._read_loadorder_txt()
+        self.active_plugins = active_plugins or []
+        # silo owns the truth — no more text file fallback
         self.list_standard, self.list_light = self._split_by_esl(self.active_plugins)
 
     def _read_loadorder_txt(self) -> List[str]:
@@ -125,7 +123,7 @@ def iter_records(plugin_path: Path, mod_name: str = "", worker_instance: Optiona
             next_record_pos = header_start + 24 + data_size
 
             if sig == 'GRUP':
-                f.seek(next_record_pos)
+                # don't jump over the whole block — skip header and chew children naturally
                 continue
 
             edid = ""

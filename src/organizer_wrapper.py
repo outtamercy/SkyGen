@@ -188,6 +188,12 @@ class OrganizerWrapper(LoggingMixin):
             self.log_critical("No profiles found via timestamp fallback")
             raise RuntimeError("Cannot detect active MO2 profile")
 
+    def refresh_profile(self) -> str:
+        """Re-parse MO2 INI to catch profile switches without API calls."""
+        self._parse_mo2_ini()
+        self.active_plugins = self.read_loadorder_txt()
+        return self._profile_name
+
     # ------------------------------------------------------------------
     # Path Properties - Direct Access
     # ------------------------------------------------------------------

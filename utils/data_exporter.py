@@ -13,7 +13,7 @@ from ..core.constants import (
 )
 from ..extractors.reader import iter_records
 from ..extractors.reader import PluginReader
-
+from ..utils.loom import Loom
 try:
     from lz4 import block as lz4_block
 except ImportError:
@@ -34,14 +34,15 @@ class DataExporter(LoggingMixin):
         organizer_wrapper: OrganizerWrapper,
         plugin_extractor: PluginExtractor,
         cache_manager: Any = None,
-        active_plugins: Optional[List[str]] = None,  # <-- ADD
+        active_plugins: Optional[List[str]] = None,
     ) -> None:
         super().__init__()
         self.organizer_wrapper = organizer_wrapper
         self.plugin_extractor = plugin_extractor
         self.cache_manager = cache_manager
-        self.active_plugins = active_plugins  # <-- ADD
+        self.active_plugins = active_plugins  
         self.logger = LoggingMixin()
+        self.loom = Loom()
 
     # ------------------------------------------------------------------
     #  Public entry – added use_fast_scan bool
@@ -63,6 +64,9 @@ class DataExporter(LoggingMixin):
         Hybrid scan with manifest pre-filter and Last-Mod-Wins logic.
         """
         self.log_info(f"Export begin – {len(plugin_names_to_extract)} plugins, fast-scan={use_fast_scan}")
+        # Screamer so we know Loom is armed without guessing
+        loom_state = getattr(self, 'loom_enabled', False)
+        self.log_info(f"LOOM_ARMED: {loom_state}")
 
         # Determine mode
         if generate_all_categories:
@@ -81,8 +85,8 @@ class DataExporter(LoggingMixin):
         if self.cache_manager:
             cached = self.cache_manager.load_from_cache(cache_key)
             if cached:
+                self.log_info(f"CACHE_HIT: returning {len(cached)} cached records for {cache_key[:20]}...")
                 return cached
-
         # LMW FIX: Reverse plugin order for Last-Mod-Wins (Mode 3 & multi-plugin)
         # Process last plugin first so its records "win" the dedup
         if generate_all_categories or len(plugin_names_to_extract) > 1:
@@ -140,11 +144,19 @@ class DataExporter(LoggingMixin):
                             sig = record.get("signature", "")
                             record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                             record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
-                            # Attach keyword value if we got 'em — makes auto-gen output valid
+
+                            # Keyword value: Loom when enabled, legacy fallback otherwise
                             cat = target_category or record.get("category", "") or rec.get("signature", "")
                             cat_clean = cat.strip('_ ')
                             keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
-                            if keyword_list:
+                            if getattr(self, 'loom_enabled', False):
+                                record["origin_plugin"] = rec.get("origin_plugin", "Unknown")
+                                loom_kw = self.loom.resolve(record)
+                                if loom_kw:
+                                    record["keyword_value"] = loom_kw
+                                elif keyword_list:
+                                    record["keyword_value"] = keyword_list[0]
+                            elif keyword_list:
                                 record["keyword_value"] = keyword_list[0]
                             form_id = record.get('form_id', '00000000')
                             prefix = form_id[:2].upper()
@@ -185,13 +197,20 @@ class DataExporter(LoggingMixin):
                             sig = record.get("signature", "")
                             record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                             record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
-                            # Attach keyword value if we got 'em — makes auto-gen output valid
+
+                            # Keyword value: Loom when enabled, legacy fallback otherwise
                             cat = target_category or record.get("category", "") or rec.get("signature", "")
                             cat_clean = cat.strip('_ ')
                             keyword_list = getattr(self, 'keyword_cache', {}).get(cat_clean, [])
-                            if keyword_list:
+                            if getattr(self, 'loom_enabled', False):
+                                record["origin_plugin"] = rec.get("origin_plugin", "Unknown")
+                                loom_kw = self.loom.resolve(record)
+                                if loom_kw:
+                                    record["keyword_value"] = loom_kw
+                                elif keyword_list:
+                                    record["keyword_value"] = keyword_list[0]
+                            elif keyword_list:
                                 record["keyword_value"] = keyword_list[0]
-                            record["category"] = target_category
                             form_id = record.get('form_id', '00000000')
                             prefix = form_id[:2].upper()
                             try:
@@ -207,7 +226,7 @@ class DataExporter(LoggingMixin):
         else:
             seen_formids: Set[str] = set()
             skipped_count = 0
-            
+               
             for idx, plugin_name in enumerate(plugin_names_to_extract, 1):
                 if progress_callback and idx % 10 == 0:
                     progress_callback(idx, len(plugin_names_to_extract), f"scanning {plugin_name}")
@@ -241,52 +260,10 @@ class DataExporter(LoggingMixin):
                     record["sp_filter"] = SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
                     record["sp_action"] = FILTER_TO_ACTIONS.get(record["sp_filter"], ["addKeywords"])[0]
                     
-                    # Cat gen — origin-aware material matching
-                    cat = rec.get("signature", "").strip(' ')
-                    keyword_list = getattr(self, 'keyword_cache', {}).get(cat, [])
-                    if keyword_list:
-                        editor_id = rec.get("editor_id", "").lower()
-                        name = rec.get("name", "").lower()
-                        target_text = f"{editor_id} {name}"
-                        origin_plugin = record.get('origin_plugin', 'Unknown')
-                        
-                        # Narrow candidates by DLC research hints
-                        hints = ORIGIN_KEYWORD_HINTS.get(origin_plugin, {}).get(cat, [])
-                        candidates = keyword_list
-                        if hints:
-                            narrowed = []
-                            for kw in keyword_list:
-                                stripped = kw.lower()
-                                for prefix in ("arkf_", "wkf_", "rkf_", "akf_", "skf_", "mekf_", "mekef_", "arkfclothing", "is"):
-                                    stripped = stripped.replace(prefix, "")
-                                if any(hint in stripped for hint in hints):
-                                    narrowed.append(kw)
-                            if narrowed:
-                                candidates = narrowed
-                        
-                        keyword_value = None
-                        for kw in candidates:
-                            stripped = kw.lower()
-                            for prefix in ("arkf_", "wkf_", "rkf_", "akf_", "skf_", "mekf_", "mekef_", "arkfclothing", "is"):
-                                stripped = stripped.replace(prefix, "")
-                            
-                            # Extract material by stripping slot prefix or suffix
-                            material = stripped
-                            for slot in ARMOR_SLOTS:
-                                if material.endswith(slot):
-                                    material = material[:-len(slot)]
-                                    break
-                                elif material.startswith(slot):
-                                    material = material[len(slot):]
-                                    break
-                            
-                            if material and material in target_text:
-                                keyword_value = kw
-                                break
-                        
-                        # Fallback keeps volume high — narrowed candidates mean no Bonemold in Dawnguard
-                        if not keyword_value:
-                            keyword_value = candidates[0] if candidates else keyword_list[0]
+                    # Loom weaves the keyword from record DNA — no guessing, no alphabet poison
+                    record["origin_plugin"] = rec.get("origin_plugin", "Unknown")
+                    keyword_value = self.loom.resolve(record)
+                    if keyword_value:
                         record["keyword_value"] = keyword_value
                     
                     record["category"] = rec.get("signature", "UNKN")

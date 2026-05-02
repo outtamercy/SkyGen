@@ -85,6 +85,7 @@ class ApplicationConfig(BaseConfig):
         # Welcome screen state - modlist aware safety seal
         self.welcome_acknowledged: bool = False      # Did they click Continue?
         self.welcome_load_order_sig: str = ""        # Which modlist they agreed to
+        self.loom_enabled: bool = False
 
 # ---------- manager ----------
 class ConfigManager(LoggingMixin):
@@ -127,6 +128,7 @@ class ConfigManager(LoggingMixin):
         ac.selected_theme           = app.get("selected_theme", ac.selected_theme)
         ac.dev_settings_hidden      = app.get("dev_settings_hidden", str(ac.dev_settings_hidden)).lower() == 'true'
         ac.dev_settings_hidden      = app.get("dev_settings_hidden", str(ac.dev_settings_hidden)).lower() == 'true'
+        ac.loom_enabled = app.get("loom_enabled", str(ac.loom_enabled)).lower() == 'true'
 
         # Load welcome seal state (defaults to False/empty if missing)
         ac.welcome_acknowledged     = app.get("welcome_acknowledged", str(ac.welcome_acknowledged)).lower() == 'true'

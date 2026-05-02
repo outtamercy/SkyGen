@@ -156,6 +156,9 @@ class SkyGenUIController(QObject):
         self.guard.scan_started.connect(self._on_guard_scan_start)
         self.app_config: ApplicationConfig = self.config_manager.get_application_config()
         self.patch_settings: PatchGenerationOptions = self.config_manager.get_patch_settings()
+        
+        # sync loom toggle to exporter now that config actually exists
+        self.data_exporter.loom_enabled = getattr(self.app_config, 'loom_enabled', False)
 
         # Deferred PM initialization to prevent cold boot freeze
         self.siloed_snoop = None
@@ -702,8 +705,8 @@ class SkyGenUIController(QObject):
         )
         
         worker = GenerationWorker(
-            active_plugins=sorted_targets,
-            target_plugins=sorted_targets,
+            active_plugins=active_plugins if active_plugins is not None else sorted_targets,
+            target_plugins=target_plugins if target_plugins is not None else sorted_targets,
             organizer_wrapper=self.organizer_wrapper,
             file_operations_manager=self.file_ops,
             plugin_extractor=self.plugin_extractor,
@@ -807,7 +810,10 @@ class SkyGenUIController(QObject):
         self.sp_panel.lmw_toggle.toggled.connect(
             lambda checked: setattr(self.patch_settings, 'sp_lmw_winners_only', checked))
         self.sp_panel.category_combo.currentTextChanged.connect(
-            lambda text: setattr(self.patch_settings, 'category', text))  
+            lambda text: setattr(self.patch_settings, 'category', text))
+
+        self.ui_widgets["loom_enabled_checkbox"] = self.main_dialog.loom_enabled_checkbox
+        self.main_dialog.loom_enabled_checkbox.toggled.connect(self._on_loom_toggled)        
         
     def connect_ui_elements(self) -> None:
         if getattr(self, '_ui_signals_connected', False):
@@ -833,9 +839,11 @@ class SkyGenUIController(QObject):
             if self.ui_widgets["output_type_bos_radio"].isChecked() else None)
 
         # global flags
-        self.ui_widgets["debug_logging_checkbox"].toggled.connect(self._on_debug_logging_changed)
-        self.ui_widgets["traceback_logging_checkbox"].toggled.connect(self._on_traceback_logging_changed)
+        self.app_config.debug_logging       = self.ui_widgets["debug_logging_checkbox"].isChecked()
+        self.app_config.traceback_logging   = self.ui_widgets["traceback_logging_checkbox"].isChecked()
+        self.app_config.selected_theme      = self.main_dialog.theme_combo.currentText()
         self.app_config.dev_settings_hidden = self.main_dialog.hide_dev_btn.isChecked()
+        self.app_config.loom_enabled        = self.ui_widgets["loom_enabled_checkbox"].isChecked()
 
         # dialog
         self.ui_widgets["main_dialog"].accepted.connect(self.on_dialog_accepted)
@@ -851,6 +859,12 @@ class SkyGenUIController(QObject):
 
         self._handle_worker_log_line("UI signals connected to controller slots.", MO2_LOG_DEBUG)
 
+    def _on_loom_toggled(self, checked: bool) -> None:
+        self.app_config.loom_enabled = checked
+        self.data_exporter.loom_enabled = checked
+        if self.sp_panel:
+            self.sp_panel._set_loom_active(checked)
+        self._update_generate_button()
 
     def _update_generate_button(self) -> None:
         """Refresh generate button state based on active panel readiness."""
@@ -898,6 +912,8 @@ class SkyGenUIController(QObject):
             self.app_config.output_type = "SkyPatcher INI"
         elif self.ui_widgets["output_type_bos_radio"].isChecked():
             self.app_config.output_type = "BOS INI"
+        self.app_config.loom_enabled = self.ui_widgets["loom_enabled_checkbox"].isChecked()
+        self.data_exporter.loom_enabled = self.app_config.loom_enabled
 
         # SP panel
         sp = self.sp_panel
@@ -935,6 +951,8 @@ class SkyGenUIController(QObject):
         # global flags
         self.app_config.debug_logging       = self.ui_widgets["debug_logging_checkbox"].isChecked()
         self.app_config.traceback_logging   = self.ui_widgets["traceback_logging_checkbox"].isChecked()
+        self.app_config.loom_enabled        = self.ui_widgets["loom_enabled_checkbox"].isChecked()
+        self.data_exporter.loom_enabled     = self.app_config.loom_enabled
         self.app_config.selected_theme      = self.main_dialog.theme_combo.currentText()
         self.app_config.dev_settings_hidden = self.main_dialog.hide_dev_btn.isChecked()
         # Safety net: if patch_settings dangled from _enter_workspace or anywhere else,

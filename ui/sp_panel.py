@@ -197,7 +197,14 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         # Sentence Builder child wiring
         self.filter_combo.currentTextChanged.connect(self._on_filter_changed)
         self.action_combo.currentTextChanged.connect(self._on_action_changed)
+        
+        # SB changes must refresh generate button — was missing
+        self.filter_combo.currentTextChanged.connect(self._trigger_button_refresh)
+        self.action_combo.currentTextChanged.connect(self._trigger_button_refresh)
+        self.value_combo.currentTextChanged.connect(self._trigger_button_refresh)
+        
         self._update_combo_states()
+        
         # Notify controller when anything changes so button updates
         self.target_mod_combo.currentTextChanged.connect(self._trigger_button_refresh)
         self.source_mod_combo.currentTextChanged.connect(self._trigger_button_refresh)
@@ -205,6 +212,7 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.gen_modlist_cb.toggled.connect(self._trigger_button_refresh)
         self.gen_all_cats_cb.toggled.connect(self._trigger_button_refresh)
         self.output_folder_input.textChanged.connect(self._trigger_button_refresh)
+
 
     def _trigger_button_refresh(self) -> None:
         """Tell controller to recheck button state."""
@@ -322,6 +330,14 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.value_combo.blockSignals(False)
         
         QTimer.singleShot(0, self._force_combo_refresh)
+
+    def _set_loom_active(self, active: bool) -> None:
+        """Loom ON = SB combos sleep, manual mode dead."""
+        self.filter_combo.setEnabled(not active)
+        self.action_combo.setEnabled(not active)
+        self.value_combo.setEnabled(not active)
+        # LMW stays enabled — still useful for filtering winners even in auto mode
+        self.lmw_toggle.setEnabled(True)
 
     def _force_combo_refresh(self) -> None:
         """Kick Qt to build the internal view — all three ghost without this."""
@@ -586,4 +602,14 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             f"target={has_target} (needs={needs_target}), cat={has_category} (needs={needs_category}), "
             f"out={has_output}, profile={has_profile} → {ready}"
         )
+        # Loom auto-mode bypasses manual SB requirement
+        loom_on = (hasattr(self._md, 'controller') and self._md.controller 
+                   and getattr(self._md.controller.app_config, 'loom_enabled', False))
+        needs_sb = is_single and not loom_on
+        
+        has_sb = bool(self.filter_combo.currentText() and self.action_combo.currentText() 
+                      and self.value_combo.currentText()) if needs_sb else True
+        
+        ready = has_target and has_category and has_output and has_profile and has_sb
+
         return ready

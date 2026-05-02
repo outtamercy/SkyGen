@@ -59,44 +59,32 @@ class PatchAndConfigGenerationManager(LoggingMixin):
         worker = dialog_instance
         worker.log_info(f"Firing up the SkyPatcher forge for '{category or 'All'}'...")
         
-        # Global mode means we're blasting across everything
         use_global_mode = target_mod_plugin_name in ["[GLOBAL_MODE]", "all_categories", ""]
 
-        # Hard override: all-cats is always global, no matter what target string leaked in
         if generate_all_categories:
             use_global_mode = True
             target_mod_plugin_name = "[GLOBAL_MODE]"
 
         try:
-            # Grab the sentence builder bits if the user filled 'em out
             sb_filter = sp_filter_type or getattr(self.patch_settings, 'sp_filter_type', '')
             sb_action = sp_action_type or getattr(self.patch_settings, 'sp_action_type', '')
             sb_value_raw = sp_value_formid or getattr(self.patch_settings, 'sp_value_formid', '')
             sb_value = sb_value_raw.split()[0] if sb_value_raw else ''
-            sb_value_padded = sb_value.zfill(8).upper() if sb_value else sb_value
-            
-            # LMW flag now passed explicitly
-            lmw_winners_only = sp_lmw_winners_only
             
             has_sentence_builder = bool(sb_filter and sb_action and sb_value)
 
-            # Group records by where they were born (origin) vs where we found them (file_name)
             records_by_pair: Dict[Tuple[str, str], Tuple[str, List[str]]] = {}
             
             for form_id_snake, target_rec in all_exported_target_bases_by_formid.items():
                 sig = target_rec.get("signature", "UNKNOWN")
                 
-                # Skip strays if running single-category mode
                 if not generate_all_categories and category and sig.upper() != category.upper():
                     continue
 
-                # Trust DE — it already resolved this from FormID prefix
                 origin_plugin = target_rec.get("origin_plugin", target_rec.get("file_name", "Unknown"))
                 if not origin_plugin or origin_plugin == "Unknown":
                     continue
 
-                # Strip the load order byte - SkyPatcher wants local FormIDs only
-                # Format local FormID (last 6 digits of full ID, or pad short IDs)
                 raw_form = str(target_rec.get('form_id', '00000000'))
                 if len(raw_form) > 6:
                     local_id = raw_form[-6:].upper()
@@ -127,7 +115,6 @@ class PatchAndConfigGenerationManager(LoggingMixin):
 
                 # --- MODE 2: ML GEN ---
                 elif generate_modlist:
-                    # auto-filter from record type — SB is disabled in ML mode so can't rely on it
                     auto_filter = target_rec.get(
                         "sp_filter",
                         SIGNATURE_TO_FILTER.get(sig.upper(), "filterByKeywords")
@@ -143,40 +130,47 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                     else:
                         continue
 
-                # --- SHIELD: Single mode does NOT touch records_by_pair ---
                 else:
                     continue
 
-                # Only mass-gen records reach here
                 key = (origin_plugin, file_name)
                 if key not in records_by_pair:
                     records_by_pair[key] = (master_plugin, [])
                 records_by_pair[key][1].extend(lines)
 
-            # SkyPatcher dumps everything in its SKSE corner
+            # quick peek — what cats actually survived the trip to the writer
+            seen_cats = sorted({rec.get("signature", "UNKN") for rec in all_exported_target_bases_by_formid.values()})
+            worker.log_info(f"PG Cat Gen input categories: {seen_cats}")
+
             folder_name = "All" if generate_all_categories else (category.strip('_ ') if category else "All")
             skypatcher_dir = output_folder_path / "SKSE" / "Plugins" / "SkyPatcher" / folder_name
             skypatcher_dir.mkdir(parents=True, exist_ok=True)
 
-            # Trust the flags — single mode can have multi-origin records (DLC records in base ESM)
             is_mass_gen = generate_all_categories or generate_modlist
             is_single_mode = not is_mass_gen
             
             if is_single_mode:
                 all_lines = []
-                for form_id_snake, target_rec in all_exported_target_bases_by_formid.items():
+                for form_id_snake in sorted(all_exported_target_bases_by_formid.keys(), key=lambda x: int(x, 16)):
+                    target_rec = all_exported_target_bases_by_formid[form_id_snake]
                     sig = target_rec.get("signature", "UNKNOWN")
                     if category and sig.upper() != category.upper():
                         continue
                     
-                    # DE already resolved origin — just write it
                     origin = target_rec.get("origin_plugin", "Unknown")
                     raw_form = str(target_rec.get('form_id', '00000000'))
                     local_id = raw_form[-6:].upper() if len(raw_form) >= 6 else raw_form.zfill(6).upper()
                     
                     # --- MODE 1: SINGLE ---
-                    if use_sentence_builder and sb_filter and sb_action and sb_value:
+                    loom_keyword = target_rec.get("keyword_value")
+                    if loom_keyword:
+                        auto_filter = target_rec.get("sp_filter", sb_filter or "filterByKeywords")
+                        auto_action = target_rec.get("sp_action", sb_action or "addKeywords")
+                        line = f"{auto_filter}={origin}|{local_id}:{auto_action}={loom_keyword}"
+                    elif use_sentence_builder and sb_filter and sb_action and sb_value:
                         line = f"{sb_filter}={origin}|{local_id}:{sb_action}={sb_value}"
+                    else:
+                        continue
                     
                     all_lines.append(line)
                     all_lines.append("")
@@ -193,7 +187,6 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 worker.log_info(f"Single-mode INI forged: {out_file.name}")
                 return True
 
-            # Multi-mode: Frankie-style per-origin-plugin INIs
             active_list = self.organizer_wrapper.active_plugins
             
             for (origin_plugin, file_name), (master_plugin, lines) in records_by_pair.items():

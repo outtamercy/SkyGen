@@ -39,6 +39,7 @@ class ApplicationConfig:
     remember_splitter_state: bool = True
     patch_settings: PatchGenerationOptions = field(default_factory=PatchGenerationOptions)
     dev_settings_hidden: bool = False
+    loom_enabled: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
