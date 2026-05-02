@@ -211,7 +211,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         
         if self.controller:
             self.controller._save_current_ui_config_to_models()
-            self.config_manager.flush_config()
+            #self.config_manager.flush_config()
         
         super().reject()
 
@@ -804,6 +804,10 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.controller.sp_panel = self.sp_panel
         self.controller.bos_panel = self.bos_panel
         self.controller._update_generate_button()
+
+        # setChecked() doesn't fire toggled — manually sync SB combo state
+        if self.sp_panel:
+            self.sp_panel._set_loom_active(self.loom_enabled_checkbox.isChecked())
 
     #######################################################################
     #  initial data
