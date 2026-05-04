@@ -25,7 +25,6 @@ from ..core.constants import (
 from .feedback import StatusLogWidget
 from ..utils.file_ops import FileOperationsManager
 from ..extractors.plugin_extractor import PluginExtractor
-from ..utils.data_exporter import DataExporter
 from ..utils.patch_gen import PatchAndConfigGenerationManager
 from .sp_panel import SkyPatcherPanel
 from .bos_panel import BosPanel
@@ -50,7 +49,6 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         file_operations_manager: FileOperationsManager,
         plugin_extractor: PluginExtractor,
         patch_generator: PatchAndConfigGenerationManager,
-        data_exporter: DataExporter,
         plugin_path: Path,
         parent: Optional[QWidget] = None,
     ):
@@ -83,7 +81,6 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.file_ops = file_operations_manager
         self.plugin_extractor = plugin_extractor
         self.patch_generator = patch_generator
-        self.data_exporter = data_exporter
         # ---------- self-contained INI ----------
         config_dir = Path(__file__).resolve().parent.parent / "data"
         config_dir.mkdir(parents=True, exist_ok=True)
@@ -306,6 +303,9 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         # Switch panels
         new_panel = self._panel_map[output_type]
         self.panel_stack.setCurrentWidget(new_panel)
+        # Kick the panel's button state — showEvent is flaky on first reveal
+        if hasattr(new_panel, '_update_button_state'):
+            new_panel._update_button_state()
         new_panel.setEnabled(True)
         QTimer.singleShot(50, lambda: new_panel.setFocus())
         
@@ -1035,6 +1035,21 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.controller.launch_auditor(silo)
 
     def _on_wiz_clicked(self) -> None:
-        """Route to active silo."""
-        silo = "SP" if self.panel_stack.currentIndex() == 0 else "BOS"
-        self.controller.launch_wizard(silo)
+        """BL Wiz toggle — scan on first click, apply on OK, reset after."""
+        if not self.controller:
+            return
+        
+        if self.wiz_btn.text() == "Blacklist⚡ Wiz":
+            self.controller.launch_wizard("GLOBAL")  # silo ignored, scans all
+            self.wiz_btn.setText("OK")
+            self.wiz_btn.setToolTip("Click to confirm blacklist additions")
+            # Scroll log viewer to bottom so they don't miss the message
+            if hasattr(self.status_log_widget, 'log_display'):
+                display = self.status_log_widget.log_display
+                QTimer.singleShot(50, lambda: display.verticalScrollBar().setValue(
+                    display.verticalScrollBar().maximum()
+                ))
+        else:
+            self.controller.launch_wizard("GLOBAL")  # apply
+            self.wiz_btn.setText("Blacklist⚡ Wiz")
+            self.wiz_btn.setToolTip("Launch BL Wizard")

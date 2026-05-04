@@ -20,12 +20,12 @@ from ..src.organizer_wrapper import OrganizerWrapper
 from ..core.constants import (
     SKYPATCHER_SUPPORTED_RECORD_TYPES, ERROR_MESSAGES, BYPASS_BLACKLIST, 
     BOS_SUPPORTED_RECORD_TYPES, DEBUG_MODE, TRACEBACK_LOGGING, SIGNATURE_TO_CATEGORIES,
-    SIGNATURE_TO_FILTER, BLESSED_CORE_FILES, KEYWORD_SECTION_MAP, BOS_SIGNATURES
+    SIGNATURE_TO_FILTER, BLESSED_CORE_FILES, KEYWORD_SECTION_MAP, BOS_SIGNATURES,
+    GLOBAL_IGNORE_PLUGINS
 )
 
 from ..utils.file_ops import FileOperationsManager
 from ..extractors.plugin_extractor import PluginExtractor
-from ..utils.data_exporter import DataExporter
 from ..utils.patch_gen import PatchAndConfigGenerationManager
 from .worker import GenerationWorker
 from ..core.models import ApplicationConfig, PatchGenerationOptions
@@ -126,11 +126,10 @@ class SkyGenUIController(QObject):
         file_operations_manager: FileOperationsManager,
         plugin_extractor: PluginExtractor,
         patch_generator: PatchAndConfigGenerationManager,
-        data_exporter: DataExporter,
         config_manager: ConfigManager,
         theme_manager: ThemeManager,
         plugin_path: Path,
-        guard: Guard, 
+        guard: Guard,
         parent: Optional[QObject] = None
     ) -> None:
         super().__init__(parent)
@@ -139,13 +138,11 @@ class SkyGenUIController(QObject):
         self.file_ops = file_operations_manager
         self.plugin_extractor = plugin_extractor
         self.patch_gen = patch_generator
-        self.data_exporter = data_exporter
         self.config_manager = config_manager
         self.theme_manager = theme_manager
         self.main_dialog = main_dialog
         self.plugin_path = plugin_path
         self.cache = CacheManager(str(plugin_path))
-        self.data_exporter.cache_manager = self.cache
 
         self.ui_widgets: Optional[Dict[str, Any]] = None
         self.sp_panel: Optional['SkyPatcherPanel'] = None
@@ -156,9 +153,6 @@ class SkyGenUIController(QObject):
         self.guard.scan_started.connect(self._on_guard_scan_start)
         self.app_config: ApplicationConfig = self.config_manager.get_application_config()
         self.patch_settings: PatchGenerationOptions = self.config_manager.get_patch_settings()
-        
-        # sync loom toggle to exporter now that config actually exists
-        self.data_exporter.loom_enabled = getattr(self.app_config, 'loom_enabled', False)
 
         # Deferred PM initialization to prevent cold boot freeze
         self.siloed_snoop = None
@@ -176,6 +170,7 @@ class SkyGenUIController(QObject):
         # Session capture for post-mortem (INFO and above)
         self._session_buffer: List[str] = []
         self._session_buffer_max = 5000
+        self._wiz_candidates: List[str] = []
         self._generation_in_progress = False
         self.log_callback = lambda msg, lvl: self.main_dialog.status_log_widget.append_line(msg, lvl)
 
@@ -183,9 +178,6 @@ class SkyGenUIController(QObject):
         self._keyword_cache: Dict[str, List[str]] = {}
         self._filter_cache: Dict[str, List[str]] = {}  # INI keys for Filter combo
         self._warm_keyword_cache()
-
-        # Feed DE the keyword cache so auto-gen has ammo
-        self.data_exporter.keyword_cache = self._keyword_cache
 
         self._handle_worker_log_line("Director Fury on-line – 'S.H.I.E.L.D. Status Report' active.", MO2_LOG_INFO)
         _configure_logger_once(self.app_config.debug_logging, self.app_config.traceback_logging)
@@ -340,7 +332,8 @@ class SkyGenUIController(QObject):
         self._deferred_pm_init()
 
     def _detect_pluginless_mods(self) -> Dict[str, Any]:
-        """Hunt mod folders with assets but no plugins — invisible to Frankie."""
+        """Hunt mod folders with assets but no plugins — invisible to Frankie.
+        ONLY active mod folders (from modlist.txt) qualify."""
         from types import SimpleNamespace
         
         result: Dict[str, Any] = {}
@@ -349,11 +342,37 @@ class SkyGenUIController(QObject):
         if not mods_root or not mods_root.exists():
             return result
         
+        # ---- ACTIVE MOD FILTER ----
+        # Same source PM uses for BOS_MODS — keeps silo consistent
+        active_mods: set[str] = set()
+        profile_dir = getattr(self.organizer_wrapper, 'profile_dir', None)
+        if profile_dir:
+            modlist_path = Path(profile_dir) / "modlist.txt"
+            if modlist_path.exists():
+                with open(modlist_path, 'r', encoding='utf-8-sig') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('+'):
+                            name = line[1:].strip()
+                            if name and not name.endswith('_separator'):
+                                active_mods.add(name)
+        
         # Build exclusion set — anything with a plugin is already handled
         known = set(self._plugin_to_mod_bridge.values())
         known.update(self._plugin_to_mod_bridge.keys())
         known.update(self._rich_silos.get("SP", {}).keys())
         known.update(self._rich_silos.get("BOS_MODS", {}).keys())
+        
+        for mod_folder in mods_root.iterdir():
+            if not mod_folder.is_dir():
+                continue
+            
+            name = mod_folder.name
+            # Skip inactive — this was the leak
+            if name not in active_mods:
+                continue
+            if name in known:
+                continue
         
         for mod_folder in mods_root.iterdir():
             if not mod_folder.is_dir():
@@ -711,7 +730,7 @@ class SkyGenUIController(QObject):
             file_operations_manager=self.file_ops,
             plugin_extractor=self.plugin_extractor,
             patch_generator=self.patch_gen,
-            data_exporter=self.data_exporter,
+            keyword_cache=self._keyword_cache,
             app_config=self.app_config,
             patch_settings=self.patch_settings,
             cache_manager=self.cache,
@@ -861,21 +880,14 @@ class SkyGenUIController(QObject):
 
     def _on_loom_toggled(self, checked: bool) -> None:
         self.app_config.loom_enabled = checked
-        self.data_exporter.loom_enabled = checked
         if self.sp_panel:
             self.sp_panel._set_loom_active(checked)
         self._update_generate_button()
 
     def _update_generate_button(self) -> None:
-        """Refresh generate button state based on active panel readiness."""
-        is_sp_active = self.main_dialog.panel_stack.currentIndex() == 0
-        
-        if is_sp_active:
-            ready = self.sp_panel.is_ready()
-            self.sp_panel.generate_btn.setEnabled(ready)
-        else:
-            ready = self.bos_panel.is_ready()
-            self.bos_panel.generate_btn.setEnabled(ready)
+        """SP only — BOS handles its own button state."""
+        ready = self.sp_panel.is_ready()
+        self.sp_panel.generate_btn.setEnabled(ready)
 
     def _validate_output_folder(self, folder_path: str, worker_callback) -> Optional[Path]:
         """Returns Path if valid, emits errors via callback if not."""
@@ -913,7 +925,6 @@ class SkyGenUIController(QObject):
         elif self.ui_widgets["output_type_bos_radio"].isChecked():
             self.app_config.output_type = "BOS INI"
         self.app_config.loom_enabled = self.ui_widgets["loom_enabled_checkbox"].isChecked()
-        self.data_exporter.loom_enabled = self.app_config.loom_enabled
 
         # SP panel
         sp = self.sp_panel
@@ -952,7 +963,6 @@ class SkyGenUIController(QObject):
         self.app_config.debug_logging       = self.ui_widgets["debug_logging_checkbox"].isChecked()
         self.app_config.traceback_logging   = self.ui_widgets["traceback_logging_checkbox"].isChecked()
         self.app_config.loom_enabled        = self.ui_widgets["loom_enabled_checkbox"].isChecked()
-        self.data_exporter.loom_enabled     = self.app_config.loom_enabled
         self.app_config.selected_theme      = self.main_dialog.theme_combo.currentText()
         self.app_config.dev_settings_hidden = self.main_dialog.hide_dev_btn.isChecked()
         # Safety net: if patch_settings dangled from _enter_workspace or anywhere else,
@@ -1112,12 +1122,72 @@ class SkyGenUIController(QObject):
         
         dialog.exec()
 
-    def launch_wizard(self, silo: str) -> None:
-        """Launch BlacklistWizard for the specified silo."""
-        self.log_info(f"Wizard launch requested for silo: {silo}")
-        # Future: from ..ui.wizard_dialog import BlacklistWizard
-        # dialog = BlacklistWizard(siloed_snoop=self.siloed_snoop, silo=silo, parent=self.main_dialog)
-        # dialog.exec()
+    def launch_wizard(self, silo: str) -> bool:
+        """Toggle-style BL Wiz. Scan on first call, apply on second. Silo ignored — global scan."""
+        if not self._wiz_candidates:
+            # ---- SCAN MODE ----
+            if not self.profile_manager or not self.blacklist_mgr:
+                self.log_warning("BL Wiz: PM or BL not ready, can't sniff")
+                return False
+            
+            candidates = []
+            for plugin_name, entry in self.profile_manager._manifest.items():
+                # Blessed base game = sacred, never touch
+                if getattr(entry, 'is_blessed', False):
+                    continue
+                
+                # LC already did the math — trust Frankie's framework flag
+                if not getattr(entry, 'is_framework', False):
+                    continue
+                
+                plugin_lower = plugin_name.lower()
+                
+                # Skip if already handled by any BL system
+                if plugin_lower in self.blacklist_mgr._auto_blacklist:
+                    continue
+                if plugin_lower in self.blacklist_mgr._user_rules:
+                    continue
+                if plugin_name in GLOBAL_IGNORE_PLUGINS:
+                    continue
+                
+                candidates.append(plugin_name)
+            
+            self._wiz_candidates = candidates
+            
+            if candidates:
+                names = ", ".join(candidates[:5])
+                tail = f" and {len(candidates) - 5} more" if len(candidates) > 5 else ""
+                self._handle_worker_log_line(
+                    f"BL Wiz sniffed out {len(candidates)} strays — {names}{tail}. "
+                    f"Mash OK to yeet 'em or... just don't click anything. Your call.",
+                    MO2_LOG_INFO
+                )
+            else:
+                self._handle_worker_log_line(
+                    "BL Wiz: Load order's clean as a whistle. No stray utility mods detected.",
+                    MO2_LOG_INFO
+                )
+            return True
+        
+        # ---- APPLY MODE ----
+        if self._wiz_candidates:
+            for plugin_name in self._wiz_candidates:
+                self.blacklist_mgr.add_auto_blacklist(plugin_name, "wizard_auto")
+            self.blacklist_mgr._save_auto_blacklist()
+            self._on_auditor_rules_changed()
+            self._handle_worker_log_line(
+                f"BL Wiz: Yeeted {len(self._wiz_candidates)} mod{'s' if len(self._wiz_candidates) != 1 else ''} to the blacklist. "
+                f"Combos should feel lighter now.",
+                MO2_LOG_INFO
+            )
+        else:
+            self._handle_worker_log_line(
+                "BL Wiz: Nothing to add. Your load order's already behaving.",
+                MO2_LOG_INFO
+            )
+        
+        self._wiz_candidates = []
+        return False
 
     @property
     def patch_gen(self):

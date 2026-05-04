@@ -1,0 +1,145 @@
+# SkyGen 0.9.1-dev — CHANGELOG
+# 05-03-26
+
+## What Actually Got Done
+
+### SP (SkyPatcher) — The Big Brain Surgery
+- **Worker finally shut up.** Stripped the "helpful" post-processing loop that was lying about plugin origins. No more prefix math, no more origin_plugin reassignment. Worker is now a dumb pipe: extract → flatten → dedupe → hand off.
+- **PatchGen grew a spine.** Now owns `plugin_to_idx` lookup for filenames, FE/ESL handling (`FEXXX-` for ESLs, `02X-` for normals), and Loom resolution runs once per record before any mode logic. Single and Mass modes both get clean keywords.
+- **Loom won't crash on cached runs anymore.** JSON cache deserializes bytes into str/list, so `struct.unpack` was eating garbage. Added `isinstance(dnam, bytes)` guards in weapon/armor/spell resolution. Cache hits don't = instant death now.
+- **Models actually make sense.** `PatchGenerationOptions` is the one true dataclass in `core/models.py`. `config.py` imports it instead of defining its own zombie class. `utils/patch_settings.py` is a tombstone that redirects imports so nothing breaks.
+- **File ops got a shower.** Scrubbed old "CRITICAL FIX" archaeology. Applied clean version.
+
+### Infrastructure
+- **OrganizerWrapper ghosts the API.** One `basePath()` handshake in `__init__`, then never touches MO2 again. Everything else is INI parsing and file sniffing.
+
+### BOS (Base Object Swapper) — Fixes Applied
+- **Button state war resolved.** Controller was fighting BOS panel for who owns the generate button. Controller now stays in its lane (SP only). BOS handles its own readiness. Fixed greyed-out button on first panel open and panel switch.
+- **Generation logging beefed up.** Was just "BOS generation started" then radio silence. Now logs record counts, source→target pairing, and first 5 records at DEBUG level.
+- **EDID column added to FID table.** BOS reader now extracts EDID so you can tell `00012345` is a sword vs a table without guessing.
+- ** PE is overkill for BOS needs — like bringing a gun to a knife fight. Reader path stays.
+
+### The Ghost We Chased (2 Days of My Life I'll Never Get Back)
+- **040179C9 "phantom" pickaxe:** Turned out to be a real WEAP override in one of the 59 mods. Loom correctly identified it via EDID. PE wasn't drifting, Worker wasn't lying, code was actually fine. Just needed the right xEdit search method. Two days to figure out we were chasing our own tail.
+
+### Known Limitations
+- **Loom DNAM SE offset:** Still using EDID fallback. DNAM[12:14] is flags in SE, not anim type. Needs research for proper weapon animation detection.
+
+### Tested
+- SP ML Gen (59 plugins, WEAP category) — generated INIs, checked output filenames and filter lines. One INI verified in xEdit.
+- SP Single Gen (2 plugins) — still works, no regression.
+- BOS FID scan → table population → generate → INI output. EDID column populates.
+- file_ops.py — applied, no issues.
+
+### Pending Test (Before Ship)
+- BOS M2M mode (target→source swap).
+- SP Cat Gen (all categories).
+
+---
+*Written by an old tired dev who chased a ghost for 2 days then realized the code was right all along. xEdit search method was the real bug.*
+
+# SkyGen 0.9.1b CHANGELOG
+# 5/2/26
+
+## Loom (Auto-Keyword Resolver)
+- FIXED: PluginExtractor._parse_sub_records() now stores subrecord data instead of discarding it
+  - Text fields (EDID, FULL, MODL, etc.) decoded to strings
+  - Binary fields (DNAM, BODT, RNAM, KWDA, SPIT) preserved as bytes for struct unpacking
+- FIXED: Loom._edid_fallback() handles both bytes and str inputs (safety net)
+- FIXED: BOOK ML Gen now emits variance: IsSpellTome, IsRecipe, IsJournal, IsLetter, IsNote, IsMap, IsScroll instead of generic IsBook
+- FIXED: Loom toggle checkbox state persists across sessions
+- FIXED: Loom toggle greys out Sentence Builder combos on restore (setChecked() doesn't emit toggled)
+- FIXED: Controller's _on_loom_toggled() syncs data_exporter.loom_enabled at runtime
+- FIXED: _save_current_ui_config_to_models() saves loom_enabled to ApplicationConfig
+- FIXED: Removed duplicate flush_config() in main_dialog.reject() that caused race condition with controller's debounced save
+
+## Data Pipeline
+- FIXED: Cat Gen dropout — reader.py GRUP skip overshoot replaced with continue so children parse naturally
+- FIXED: Silo-only origin — killed loadorder.txt fallbacks in reader.py and plugin_extractor.py
+- FIXED: XXXX subrecord parsing in plugin_extractor.py — large subrecords no longer misalign the parser
+- FIXED: Cache deduplication — removed worker.py double-cache vault, data_exporter.py is single source of truth
+- FIXED: Mode bleed in worker.py — explicit MODE_SINGLE/MODE_MODLIST/MODE_ALLCATS flags
+
+## Profile / Session
+- ADDED: Profile switch detection — organizer_wrapper.py refresh_profile() re-parses ModOrganizer.ini
+- ADDED: main_dialog.py showEvent checks _last_profile vs current and reseals welcome/respawns PM if changed
+
+SkyGen 0.9.1b Changelog
+LC / Classification
+
+    BLESSED_CORE_FILES split: Base game masters remain sacred; CC mods are no longer unconditionally blessed
+    Added HDPT, HAIR to SKYPATCHER_SUPPORTED_RECORD_TYPES, BOS_SUPPORTED_RECORD_TYPES, OBJECT_SIGS, LOGIC_SIGS
+    LearningCore._calculate_score() tightened: content anchor (-40 penalty for real game objects), global hit threshold lowered to >= 1, tiny pure-logic gate capped at 500KB, ratio check gated behind content-anchor absence
+    frankensnoop.py now imports OBJECT_SIGS / LOGIC_SIGS from constants instead of hardcoded stubs
+
+Silo / Manifest
+
+    Added GLOBAL silo to PM emit pipeline: _filter_global_silo(), _save_silo_cache(), _load_silo_cache(), refresh_silos() cache path, and controller._rich_silos
+    generate_audit_cache() no longer hardcodes startswith('cc') blessed shield — trusts manifest is_blessed flag
+    _filter_global_silo() includes all layer=global mods (blessed + framework) so base game masters are visible under Global filter
+
+Blacklist / Auditor
+
+    bl_mgr.py get_mod_status() no longer hardcodes BLESSED_CORE_FILES check — reads from manifest entry / audit cache
+    auditor_dialog.py AE tier gated with entry.is_blessed guard so non-blessed AE mods fall through to CC classification
+    auditor_dialog.py CC tier now shows [CC-Framework] or [CC-Content] based on LC classification instead of unconditional [BLESSED-CC]
+
+UI / Memory
+
+    feedback.py StatusLogWidget switched to setMaximumBlockCount(1000) — fixes memory leak from unbounded QTextEdit growth
+
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing died with "Found 0 plugins" then "No Body records found." Three bugs stacked:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner.
+    The swap scanner gave up if the target mod had no plugins. Now it scans the whole load order — vanilla records live in Skyrim.esm and DLCs, not in the target folder.
+    We were filtering body parts by editor_id only. Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely.
+
+Fixed: Config actually saves for people who hit the welcome screen
+If your config lacked welcome_load_order_sig, you'd hit the welcome panel every time. _enter_workspace swapped in a fresh app_config but left patch_settings pointing at the old object. All your UI changes got written to the dangling object, then save wrote the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Fixed: Theme combo showing "default" ghost text
+Purged DEFAULT_THEME_NAME from theme_manager.py. Combo now shows only real themes. No phantom fallback.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the ML Gen / Cat Gen boxes. Now _update_combo_states forces a recalc when mode switches.
+Fixed: All-cats generation only produced ARMO INIs
+worker.py was stripping underscores from signatures — NPC_ became NPC, which didn't match SKYPATCHER_SUPPORTED_RECORD_TYPES. Only ARMO survived. Fixed the strip call.
+Fixed: Bare addKeywords in generated INIs
+patch_gen.py was writing filterByKeywords=plugin|FID:addKeywords with no value. SkyPatcher read it, saw nothing, skipped it. Now data_exporter.py attaches the first keyword from the cache, and patch_gen.py skips records with no keyword value instead of writing broken syntax.
+Fixed: 3-mode forge bleed in patch_gen.py
+Single, ML, and Cat Gen were sharing variables and loops. auto_filter existed in some branches but not others, causing UnboundLocalError. Now the forge has three walled-off blocks — Single gets SB only, ML gets SB only, Cat Gen gets auto-filter metadata. No bleed.
+Fixed: Startup freeze on large modlists
+refresh_silos() was rebuilding the audit cache from scratch every launch even when silo cache was valid. Now it only generates if missing.
+Fixed: Manifest duplicate section crash
+ConfigParser(strict=True) dies on duplicate [elle] sections. Switched to strict=False — loads last value, heals on next save.
+Fixed: Welcome panel firing on valid cache
+Guard was reading manifest sig instead of silo cache sig. Different hash sources = never matched. Now Guard checks the silo cache directly.
+Added: Panic button
+Dev settings has a "💾 Flush Config NOW" button. Hammers config to disk immediately without closing.
+Added: Tooltips everywhere
+BOS panel and SP panel now explain what every widget does. No more guessing.
+Added: keywords.ini hole fillers
+Added [arma], [weapon], [npc], [light], [flora], [tree], [alchemy], [book], [misc], [furniture], [container], [soulgem], [scroll], [perk], [shout], [enchantment], [activator], [static], [ingredient], [key], [armaddon].
+
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing would just die with "Found 0 plugins" then "No Body records found." Turns out we had three bugs stacked on top of each other:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner. "Body" fell through to nowhere.
+    The swap scanner gave up if the target mod had no plugins of its own. Now it scans the whole load order instead — because vanilla records live in Skyrim.esm and the DLCs, not in the target mod folder.
+    We were filtering body parts by editor_id only, looking for substrings like "body" or "skin." Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely. User picked the category, we trust it.
+
+Fixed: Config actually saves for people who see the welcome screen
+If your config didn't have welcome_load_order_sig stored, you'd hit the welcome panel every time. _enter_workspace would swap in a fresh app_config object but leave patch_settings pointing at the old one. All your UI changes got written to the dangling object, then save would write the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Added: Panic button
+Sometimes you just wanna hammer the config to disk right now without closing the dialog. Dev settings section now has a "💾 Flush Config NOW" button. Smashes save_application_config and flush_config immediately. For when things feel haunted.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the "Generate Entire ModList" / "Generate All Categories" checkboxes. So you could check a box and the button stayed dead. Now _update_combo_states forces a button recalc whenever mode switches.
+Fixed: BOS _scan_chance_spin tooltip crash
+Had the tooltip line sitting before the widget creation. Classic. Moved it after.
+Added: Tooltips everywhere
+BOS panel was missing explanations for half its widgets. Added tooltips for output folder, XYZ offsets, scan mode toggle, scan button, chance spin, clear/add/export buttons, category filter, and generate button. No more guessing what "FID Scan" means.
+Added: BOS generation progress logging
+M2M scan now logs "Scanning for Body records at 100% chance..." and "Writing N swaps at 100% chance to..." so you know the chance value actually got applied. Also added per-plugin heartbeat during the nuclear asset-scan fallback so the UI doesn't look frozen.

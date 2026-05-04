@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..utils.logger import LoggingMixin, SkyGenLogger, MO2_LOG_INFO, MO2_LOG_ERROR
 from ..core.constants import PLUGIN_CONFIG_FILE_NAME
-from ..core.models import ApplicationConfig
+from ..core.models import ApplicationConfig, PatchGenerationOptions
 from ..utils.file_ops import FileOperationsManager
 
 T = TypeVar('T', bound='BaseConfig')
@@ -79,7 +79,7 @@ class ApplicationConfig(BaseConfig):
         self.remember_splitter_state: bool = True
         self.selected_theme: str = "Default"
         self.main_window_geometry: QByteArray = QByteArray()
-        self.patch_settings: PatchSettings = PatchSettings()
+        self.patch_settings: PatchGenerationOptions = PatchGenerationOptions()
         self.dev_settings_hidden: bool = True  # Keep the dev junk folded up by default
         
         # Welcome screen state - modlist aware safety seal
@@ -184,10 +184,10 @@ class ConfigManager(LoggingMixin):
     def get_application_config(self) -> ApplicationConfig:
         return self.app_config
 
-    def get_patch_settings(self) -> PatchSettings:
+    def get_patch_settings(self) -> PatchGenerationOptions:
         return self.app_config.patch_settings
 
-    def save_patch_settings(self, settings: PatchSettings) -> None:
+    def save_patch_settings(self, settings: PatchGenerationOptions) -> None:
         self.app_config.patch_settings = settings
         self._write_ini()
 

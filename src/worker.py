@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import traceback
 from pathlib import Path
+import hashlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from lz4 import block as lz4_block
 
 from PyQt6.QtCore import QObject, pyqtSignal, QRunnable, Qt, QThread     # type: ignore
@@ -13,8 +14,6 @@ from ..utils.logger import (LoggingMixin, SkyGenLogger,
 )
 from ..src.organizer_wrapper import OrganizerWrapper
 from ..extractors.plugin_extractor import PluginExtractor
-from ..extractors.reader import PluginReader, iter_records
-from ..utils.data_exporter import DataExporter
 from ..utils.patch_gen import PatchAndConfigGenerationManager
 from ..core.models import ApplicationConfig, PatchGenerationOptions
 from ..core.constants import (SKYPATCHER_SUPPORTED_RECORD_TYPES, FILTER_TO_ACTIONS, SIGNATURE_TO_CATEGORIES,
@@ -49,7 +48,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
         file_operations_manager: Optional[FileOperationsManager] = None,
         plugin_extractor: Optional[PluginExtractor] = None,
         patch_generator: Optional[PatchAndConfigGenerationManager] = None,
-        data_exporter: Optional[DataExporter] = None,
+        keyword_cache: Optional[Dict[str, List[str]]] = None,
         app_config: Optional[ApplicationConfig] = None,
         patch_settings: Optional[PatchGenerationOptions] = None,
         cache_manager: Optional[CacheManager] = None, 
@@ -69,7 +68,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
             self.file_ops = file_operations_manager
             self.plugin_extractor = plugin_extractor
             self.patch_gen = patch_generator
-            self.data_exporter = data_exporter
+            self.keyword_cache = keyword_cache or {}
             self.app_config = app_config
             self.patch_settings = patch_settings
     # ------------------------------------------------------------------
@@ -144,41 +143,60 @@ class GenerationWorker(QRunnable, LoggingMixin):
         
         return plugins
 
-    def _extract_records_direct(self, plugin_name: str, category: str) -> List[Dict[str, Any]]:
-        """
-        Surgical extraction for single mode – uses PluginExtractor directly.
-        Bypasses Reader's 10MB limit and uses working decompression chain.
-        """
-        records = []
+    def _extract_records_direct(
+        self,
+        plugin_names: List[str],
+        category: Optional[str] = None,
+        generate_modlist: bool = False,
+        generate_all_categories: bool = False,
+        progress_callback: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """Raw extraction — PE recursive parser only, reader.py killed for SP."""
+        if generate_all_categories or len(plugin_names) > 1:
+            plugin_names = list(reversed(plugin_names))
+            self.log_debug(f"LMW order: reversed to {len(plugin_names)} plugins")
+
+        raw: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+        cat_clean = category.strip('_ ') if category else ''
+
+        # PE filter: pass category as bytes set so it skips non-matching signatures early
+        record_types_bytes = {cat_clean.encode('utf-8')} if cat_clean else None
         
-        if not plugin_name or not category:
-            return records
-        
-        path = self.organizer_wrapper.get_plugin_path(plugin_name)
-        if not path:
-            self.log_warning(f"Direct extraction: path not found for {plugin_name}")
-            return records
-        
-        try:
-            self.log_debug(f"Direct scanning {plugin_name} for {category} records")
-            
-            # Use PluginExtractor directly - no 10MB limit, proper GRUP handling
-            data = self.plugin_extractor.extract_data_from_plugins(
-                plugin_names=[plugin_name],
-                game_version="SkyrimSE",  # TODO: get from app_config.game_version if needed
+        self.log_info(f"PE_FILTER: cat='{cat_clean}' bytes={record_types_bytes}")
+
+        for idx, name in enumerate(plugin_names, 1):
+            if progress_callback and idx % 10 == 0:
+                progress_callback(idx, len(plugin_names), f"scanning {name}")
+            path = self.organizer_wrapper.get_plugin_path(name)
+            if not path:
+                continue
+
+            # KILL READER — use PE's recursive GRUP parser directly
+            data = self.plugin_extractor.extract_metadata(
+                path,
                 worker_instance=self,
-                record_types=[category.encode('utf-8')]
+                record_types_bytes=record_types_bytes,
+                cache_manager=self.cache_manager,
             )
-            
-            records = data.get("baseObjects", [])
-            self.log_info(f"Direct extraction: {len(records)} {category} records from {plugin_name}")
-            
-        except Exception as e:
-            self.log_error(f"Error during direct extraction from {plugin_name}: {e}")
-            import traceback
-            self.log_debug(traceback.format_exc())
-        
-        return records
+
+            # Flatten nested GRUP tree into flat dict by form_id
+            def _flatten(records):
+                flat = {}
+                for rec in records:
+                    if rec.get("is_grup"):
+                        flat.update(_flatten(rec.get("children", [])))
+                    else:
+                        fid = rec.get("form_id")
+                        if fid and fid not in seen:
+                            seen.add(fid)
+                            rec["file_name"] = name
+                            flat[fid] = rec
+                return flat
+
+            raw.extend(_flatten(data.get("records", [])).values())
+
+        return raw
 
     def _generate_patch(self, ot: str) -> tuple[bool, str]:
         """
@@ -196,10 +214,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
         # CRITICAL: Sync both Extractor AND DataExporter for origin resolution
         if self.plugin_extractor and self.active_plugins:
             self.plugin_extractor.active_plugins = self.active_plugins
-        if self.data_exporter and self.active_plugins:
-            self.data_exporter.active_plugins = self.active_plugins
-            self.log_debug(f"Synced {len(self.active_plugins)} plugins to DataExporter")   
-            
+        
         # ✅ FIX: Derive selected plugins from settings
         selected_plugins = self._get_selected_plugins()
         
@@ -211,10 +226,6 @@ class GenerationWorker(QRunnable, LoggingMixin):
         generate_modlist = getattr(self.patch_settings, 'generate_modlist', False)
         target_category = getattr(self.patch_settings, 'category', '')
         
-        extracted_records = []
-        lz4_block = getattr(self.patch_settings, 'use_fast_scan', True)
-        reader_instance = PluginReader(self.organizer_wrapper) if (generate_modlist or generate_all_categories) else None
-
         # ✅ CURE: Explicit mode resolution — no elif bleed possible
         generate_all_categories = getattr(self.patch_settings, 'generate_all_categories', False)
         generate_modlist = getattr(self.patch_settings, 'generate_modlist', False)
@@ -233,62 +244,56 @@ class GenerationWorker(QRunnable, LoggingMixin):
         
         self.log_info(f"MODE_LOCKED: {mode}")
 
-        # Extract based on locked mode
+        # ---- Worker owns raw cache ----
+        plugins_slug = hashlib.md5(','.join(sorted(selected_plugins)).encode()).hexdigest()[:12]
+        lo_slug = hashlib.md5(','.join(self.active_plugins or []).encode()).hexdigest()[:12]
+        cache_key = f"raw_v2_{mode}_{plugins_slug}_{target_category or 'all'}_lo{lo_slug}"
+
+        self.log_info(f"RAW_AUDIT: mode={mode}, plugins={len(selected_plugins)}, cat='{target_category}'")
+        raw_records: List[Dict[str, Any]] = []
+        if self.cache_manager:
+            cached = self.cache_manager.load_from_cache(cache_key)
+            if cached:
+                self.log_info(f"CACHE_HIT: raw {len(cached)} records")
+                raw_records = cached
+
+        if not raw_records:
+            raw_records = self._extract_records_direct(
+                selected_plugins, target_category,
+                generate_modlist=generate_modlist,
+                generate_all_categories=generate_all_categories,
+                progress_callback=lambda cur, total, msg: self.log_info(f"Extract: {cur}/{total} — {msg}")
+            )
+            if self.cache_manager and raw_records:
+                self.cache_manager.save_to_cache(cache_key, raw_records)
+
+        # Dumb pipe — PE already set origin_plugin and file_name.
+        # PG owns Loom, filter/action injection, and filename math.
+        # Worker's "helpful" prefix reassignment was lying about ESLs and phantoms.
+        extracted_records = raw_records
+        self.log_info(f"Dumb pipe: {len(extracted_records)} records to PG")
+
         if mode == "single":
             target_name = selected_plugins[0] if selected_plugins else ""
             source_name = selected_plugins[1] if len(selected_plugins) > 1 else ""
             self.log_info(f"Single mode: Target={target_name}, Source={source_name}, Category={target_category}")
             
-            de_records = self.data_exporter.export_plugin_data(
-                plugin_names_to_extract=selected_plugins,
-                game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
-                target_category=target_category,
-                worker_instance=self,
-                use_fast_scan=False,
-                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
-            )
-            if de_records is None:
-                de_records = []
-            
             merged_by_fid = {}
-            for rec in de_records:
+            for rec in extracted_records:
                 fid = rec.get('form_id')
                 if fid:
                     merged_by_fid[fid] = rec
-            
             extracted_records = list(merged_by_fid.values())
-            self.log_info(f"Single mode complete: {len(extracted_records)} records (DE returned {len(de_records)})")
+            
+            self.log_info(f"Single mode complete: {len(extracted_records)} records (raw returned {len(raw_records)})")
 
         elif mode == "modlist":
-            self.log_info(f"Modlist mode: DE grinding {len(selected_plugins)} plugins for {target_category}")
-            de_records = self.data_exporter.export_plugin_data(
-                plugin_names_to_extract=selected_plugins,
-                game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
-                target_category=target_category,
-                worker_instance=self,
-                use_fast_scan=False,
-                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
-            )
-            if de_records is None:
-                de_records = []
-            extracted_records = de_records
-            self.log_info(f"Modlist: DE returned {len(extracted_records)} records")
+            self.log_info(f"Modlist mode: grinding {len(selected_plugins)} plugins for {target_category}")
+            self.log_info(f"Modlist: returned {len(extracted_records)} records")
 
         elif mode == "allcats":
-            self.log_info(f"All-cats mode: DE grinding {len(selected_plugins)} plugins")
-            de_records = self.data_exporter.export_plugin_data(
-                plugin_names_to_extract=selected_plugins,
-                game_version=getattr(self.app_config, 'game_version', 'SkyrimSE'),
-                target_category=target_category,
-                worker_instance=self,
-                use_fast_scan=False,
-                generate_all_categories=True,
-                progress_callback=lambda cur, total, msg: self.log_info(f"DE: {cur}/{total} — {msg}"),
-            )
-            if de_records is None:
-                de_records = []
-            extracted_records = de_records
-            self.log_info(f"All-cats: DE returned {len(extracted_records)} records")
+            self.log_info(f"All-cats mode: grinding {len(selected_plugins)} plugins")
+            self.log_info(f"All-cats: returned {len(extracted_records)} records")
 
         else:
             return False, "No generation mode selected"
@@ -356,6 +361,7 @@ class GenerationWorker(QRunnable, LoggingMixin):
                 sp_filter_type=pg_sb_filter,
                 sp_action_type=pg_sb_action,
                 sp_value_formid=pg_sb_value,
+                active_plugins=self.active_plugins,
             )
 
         # ------------------------------------------------------------------

@@ -165,19 +165,58 @@ class Loom(LoggingMixin):
         return keyword
 
     def _resolve_weapon(self, record: Dict[str, Any]) -> Optional[str]:
-        """Pull animation type from DNAM raw bytes."""
+        """EDID substring first — DNAM offset is wrong for SE."""
+        edid = record.get("EDID", "")
+        if edid:
+            edid_lower = edid.lower()
+            # Order matters — longer substrings first
+            if "crossbow" in edid_lower:
+                return "WKF_WeaponTypeCrossbow"
+            if "greatsword" in edid_lower:
+                return "WKF_WeaponTypeGreatsword"
+            if "battleaxe" in edid_lower:
+                return "WKF_WeaponTypeBattleaxe"
+            if "warhammer" in edid_lower:
+                return "WKF_WeaponTypeWarhammer"
+            if "waraxe" in edid_lower or "war axe" in edid_lower:
+                return "WKF_WeaponTypeWarAxe"
+            if "pickaxe" in edid_lower or "pick axe" in edid_lower:
+                return "WKF_WeaponTypePickaxe"
+            if "woodaxe" in edid_lower or "wood axe" in edid_lower:
+                return "WKF_WeaponTypeWoodAxe"
+            if "dagger" in edid_lower:
+                return "WKF_WeaponTypeDagger"
+            if "mace" in edid_lower:
+                return "WKF_WeaponTypeMace"
+            if "sword" in edid_lower:          # catches Sword, Longsword, etc.
+                return "WKF_WeaponTypeSword"
+            if "bow" in edid_lower:            # after Crossbow check
+                return "WKF_WeaponTypeBow"
+            if "staff" in edid_lower:
+                return "WKF_WeaponTypeStaff"
+            if "blade" in edid_lower:          # BloodskalBlade
+                return "WKF_WeaponTypeSword"
+            if "spear" in edid_lower:
+                return "WKF_WeaponTypeSpear"
+            if "razor" in edid_lower:          # MehrunesRazor
+                return "WKF_WeaponTypeDagger"
+
+        # Dead fallback — DNAM offset is wrong for SE
         dnam = record.get("DNAM", b"")
-        if len(dnam) < 14:
-            return None
-        anim_type = struct.unpack("<H", dnam[12:14])[0]
-        return self.ANIM_TO_KEYWORD.get(anim_type)
+        if isinstance(dnam, bytes) and len(dnam) >= 14:
+            anim_type = struct.unpack("<H", dnam[12:14])[0]
+            self.log_debug(f"WEAP_DNAM_FALLBACK: {record.get('EDID','?')} flags={anim_type:#06x}")
+            # Only return if we ever hit a real mapped value (unlikely in SE)
+            return self.ANIM_TO_KEYWORD.get(anim_type)
+
+        return None
 
     def _resolve_armor(self, record: Dict[str, Any]) -> Optional[str]:
         """Slot + material from BODT/BOD2 and KWDA."""
         bodt = record.get("BODT", b"")
-        if len(bodt) < 4:
+        if not isinstance(bodt, bytes) or len(bodt) < 4:
             bodt = record.get("BOD2", b"")
-        if len(bodt) < 4:
+        if not isinstance(bodt, bytes) or len(bodt) < 4:
             return None
 
         slots_raw = struct.unpack("<I", bodt[:4])[0]
@@ -307,8 +346,9 @@ class Loom(LoggingMixin):
     def _resolve_spell(self, record: Dict[str, Any]) -> Optional[str]:
         """Basic spell school guess from SPIT or flags. Fallback to generic."""
         # SPIT subrecord at offset 0x00 has flags that hint at school
+        # SPIT subrecord at offset 0x00 has flags that hint at school
         spit = record.get("SPIT", b"")
-        if len(spit) >= 4:
+        if isinstance(spit, bytes) and len(spit) >= 4:
             flags = struct.unpack("<I", spit[:4])[0]
             # These are rough guesses from SPIT flag bits
             if flags & 0x01:

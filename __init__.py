@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 import gc
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication # type: ignore
 import mobase  # type: ignore
 from pathlib import Path
 from PyQt6.QtGui import QIcon  # type: ignore
@@ -95,7 +95,6 @@ if str(plugin_root_path) not in sys.path:
 
 from .extractors.plugin_extractor import PluginExtractor
 from .utils.file_ops import FileOperationsManager
-from .utils.data_exporter import DataExporter
 from .utils.patch_gen import PatchAndConfigGenerationManager
 from .ui.main_dialog import SkyGenMainDialog
 from .utils.guard import Guard
@@ -153,7 +152,6 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
         self.organizer: Optional[mobase.IOrganizer] = None
         self.file_operations_manager: Optional[FileOperationsManager] = None
         self.plugin_extractor: Optional[PluginExtractor] = None
-        self.data_exporter: Optional[DataExporter] = None
         self.patch_generator: Optional[PatchAndConfigGenerationManager] = None
         self.dialog: Optional[SkyGenMainDialog] = None
         self.config_manager: Optional[ConfigManager] = None
@@ -192,7 +190,6 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
             
             # 3. business-logic helpers (NOW config_manager exists)
             self.plugin_extractor = PluginExtractor(self.organizer_wrapper)
-            self.data_exporter = DataExporter(self.organizer_wrapper, self.plugin_extractor)
             self.patch_generator = PatchAndConfigGenerationManager(
                 organizer_wrapper=self.organizer_wrapper,
                 file_operations_manager=self.file_operations_manager,
@@ -206,7 +203,6 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
                 file_operations_manager=self.file_operations_manager,
                 plugin_extractor=self.plugin_extractor,
                 patch_generator=self.patch_generator,
-                data_exporter=self.data_exporter,
                 plugin_path=self.plugin_path
             )
 
@@ -216,7 +212,6 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
                 organizer_wrapper=self.organizer_wrapper,
                 file_operations_manager=self.file_operations_manager,
                 plugin_extractor=self.plugin_extractor,
-                data_exporter=self.data_exporter,
                 patch_generator=self.patch_generator,
                 config_manager=self.config_manager,
                 theme_manager=None,

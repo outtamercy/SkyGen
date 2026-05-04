@@ -125,6 +125,10 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self._table.setItem(row, 2, src_fid_item)   # Was 4
         self._table.setItem(row, 3, tgt_mod_item)   # Was 1
         self._table.setItem(row, 4, tgt_fid_item)   # Was 2
+        # Col 5: EDID (read-only, for identification)
+        edid_item = QTableWidgetItem(data.get('edid', ''))
+        edid_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        self._table.setItem(row, 5, edid_item)
 
     def _clear_fid_rows(self) -> None:
         """Clear all data and table rows."""
@@ -147,6 +151,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             src_fid_item = self._table.item(row, 2)
             tgt_mod_item = self._table.item(row, 3)
             tgt_fid_item = self._table.item(row, 4)
+            edid_item = self._table.item(row, 5)
             
             source_fid = src_fid_item.text() if src_fid_item else ""
             
@@ -157,6 +162,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 'source_fid': source_fid,
                 'form_id': source_fid,  # Generation expects this key
                 'is_asset_swap': self._fid_data[row].get('is_asset_swap', False),
+                'edid': edid_item.text() if edid_item else "",
             }
             checked_records.append(d)
         return checked_records
@@ -179,6 +185,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         super().showEvent(event)
         self.generate_btn.setVisible(True)
         self.stop_btn.setVisible(False)
+        self._update_button_state()
         
         # DEFERRED: Wake combos after Qt finishes render
         from PyQt6.QtCore import QTimer # type: ignore
@@ -328,8 +335,8 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
         # QTableWidget - 5 columns: check, source plugin, source fid, target plugin, target fid
         self._table = QTableWidget(fid_grp)  # <-- parent here if not set elsewhere
-        self._table.setColumnCount(5)
-        self._table.setHorizontalHeaderLabels(["✔️", "Source Plugin", "Source FID", "Target Plugin", "Target FID"])
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels(["✔️", "Source Plugin", "Source FID", "Target Plugin", "Target FID", "EDID"])
         
         # Column widths - lock 'em so headers don't get smooshed when resizing, we'll handle it with stretch and size policies
         header = self._table.horizontalHeader()
@@ -338,6 +345,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)      # Source FID: fixed 100px
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)      # Target Plugin: fixed 200px min  
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)      # Target FID: fixed 100px
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)      # EDID: fixed 100px
         
         # Layout: Fixed widths for FIDs, Stretch for Plugin Names to kill dead space
         header = self._table.horizontalHeader()
@@ -374,16 +382,16 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.stop_btn.setVisible(False)
         self.stop_btn.clicked.connect(self._request_stop)
 
-        self._clear_rows_btn = QPushButton("Clear List")
+        self._clear_rows_btn = QPushButton("Clear Lst")
         self._clear_rows_btn.clicked.connect(self._on_clear_clicked)
 
         self._add_btn = QPushButton("+ Line")
         self._add_btn.clicked.connect(self._on_add_clicked)
 
-        self._scan_btn = QPushButton("FormIDs Scan")
+        self._scan_btn = QPushButton("Scan 'Em")
         self._scan_btn.clicked.connect(self._scan_formids)
 
-        self._export_btn = QPushButton("Export FormIDs")
+        self._export_btn = QPushButton("Export")
         self._export_btn.clicked.connect(self._export_formid_list)
 
         self._cat_combo = QComboBox()
@@ -880,6 +888,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 
                 # Source = scanned plugin (replacement)
                 source_plugin = rec.get('plugin_name', 'Unknown')
+                edid = rec.get('EDID', rec.get('editor_id', ''))
                 
                 # --- BRIDGE LOOKUP: plugin -> mod folder ---
                 # Blessed plugins (Data/) map to themselves via bridge
@@ -920,6 +929,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                     'target_mod': target_mod,
                     'target_fid': f"0x{short_fid}",
                     'source_plugin': source_plugin,
+                    'edid': edid,
                     'target_plugin': target_plugin,
                 }
                 
@@ -1058,6 +1068,9 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
     def _generate_from_scanned(self, output_folder: Path, log_callback) -> tuple[bool, str]:
         """Generate BOS INI with LO-resolved targets - blessed plugins handled."""
         records = self._get_fid_data()
+        log_callback(f"BOS FID: Writing {len(records)} checked records to INI", MO2_LOG_INFO)
+        for d in records[:5]:
+            log_callback(f"  → {d.get('source_fid','?')} | {d.get('edid','')}", MO2_LOG_DEBUG)
         if not records:
             return False, "No FormIDs selected"
         
@@ -1116,6 +1129,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         # Get category and chance from M2M UI
         category = self._m2m_cat_combo.currentText()
         chance = self._m2m_chance_spin.value()
+        log_callback(f"BOS M2M: {self.source_mod} → {self.target_mod} | cat={category} | chance={chance}%", MO2_LOG_INFO)
         
         # Find plugins in source mod folder — pluginless mods return empty here
         source_plugins = self._find_plugins_in_mod(self.source_mod)
@@ -1153,7 +1167,9 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         if not m2m_records:
             return False, f"No {category} records found for M2M pairing"
         
-        log_callback(f"BOS M2M: Pairing {len(m2m_records)} records", MO2_LOG_INFO)
+        log_callback(f"BOS M2M: Paired {len(m2m_records)} records", MO2_LOG_INFO)
+        for rec in m2m_records[:5]:
+            log_callback(f"  → {rec.get('form_id','?')} | {rec.get('edid','')}", MO2_LOG_DEBUG)
         
         # Build writer records...
         writer_records = []

@@ -16,7 +16,7 @@ from ..core.constants import (
 from ..src.organizer_wrapper import OrganizerWrapper
 from ..utils.file_ops import FileOperationsManager
 from ..extractors.plugin_extractor import PluginExtractor
-
+from ..utils.loom import Loom
 
 class PatchAndConfigGenerationManager(LoggingMixin):
     """
@@ -36,6 +36,7 @@ class PatchAndConfigGenerationManager(LoggingMixin):
         self.file_ops = file_operations_manager
         self.plugin_extractor = plugin_extractor
         self.patch_settings = patch_settings
+        self.loom = Loom()
 
     def generate_skypatcher_ini(
             self,
@@ -55,8 +56,28 @@ class PatchAndConfigGenerationManager(LoggingMixin):
             sp_action_type: str = "",
             sp_value_formid: str = "",
             sp_lmw_winners_only: bool = True,
+            active_plugins: Optional[List[str]] = None,
         ) -> bool:
         worker = dialog_instance
+        plugin_to_idx = {name: i for i, name in enumerate(active_plugins)} if active_plugins else {}
+        
+        app_config = getattr(dialog_instance, 'app_config', None)
+        loom_enabled = getattr(app_config, 'loom_enabled', False) if app_config else False
+        
+        # Fix PE's ESL blindspot and weave Loom keywords up front.
+        # Doing it here means both Single and Mass modes see clean data.
+        for fid, rec in all_exported_target_bases_by_formid.items():
+            origin = rec.get("origin_plugin", "Unknown")
+            if not origin or origin == "Unknown":
+                origin = rec.get("file_name", "Unknown")
+                if origin and origin != "Unknown":
+                    rec["origin_plugin"] = origin
+            
+            if loom_enabled and not rec.get("keyword_value"):
+                loom_kw = self.loom.resolve(rec)
+                if loom_kw:
+                    rec["keyword_value"] = loom_kw
+
         worker.log_info(f"Firing up the SkyPatcher forge for '{category or 'All'}'...")
         
         use_global_mode = target_mod_plugin_name in ["[GLOBAL_MODE]", "all_categories", ""]
@@ -128,6 +149,7 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                         )
                         lines.append("")
                     else:
+                        # Don't silently drop — Loom miss is now obvious
                         continue
 
                 else:
@@ -186,8 +208,6 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 self.file_ops.save_text_file(out_file, "\n".join(header + all_lines))
                 worker.log_info(f"Single-mode INI forged: {out_file.name}")
                 return True
-
-            active_list = self.organizer_wrapper.active_plugins
             
             for (origin_plugin, file_name), (master_plugin, lines) in records_by_pair.items():
                 header = [
@@ -201,14 +221,16 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                     "",
                 ]
 
-                try:
-                    origin_index = active_list.index(origin_plugin)
-                except ValueError:
-                    worker.log_warning(f"{origin_plugin} not in the lineup - parking at 999")
-                    origin_index = 999
-
                 content = "\n".join(header + lines)
-                filename = f"{origin_index:02X}-{origin_plugin}.ini"
+                
+                # Look up real index by plugin name, not FormID prefix.
+                # ESLs get FE prefix; everything else gets 02X.
+                idx = plugin_to_idx.get(origin_plugin, 999)
+                if origin_plugin.lower().endswith('.esl'):
+                    filename = f"FE{idx:03X}-{origin_plugin}.ini"
+                else:
+                    filename = f"{idx:02X}-{origin_plugin}.ini"
+                    
                 out_file = skypatcher_dir / filename
                 self.file_ops.save_text_file(out_file, content)
                 worker.log_info(f"Hammered out: {filename}")

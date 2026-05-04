@@ -66,41 +66,50 @@ def iter_records(plugin_path: Path, mod_name: str = "", worker_instance: Optiona
                  reader: Optional[Any] = None) -> Iterator[Dict[str, Any]]:
     """Yield dict with form_id, signature, editor_id, name, mod_name, offset, origin_plugin."""
     
-    # GLOBAL IGNORE SHIELD: Abort immediately for utility mods (SkyUI, RaceMenu, etc.)
-    # These never contain patchable records, so we skip all file I/O and decompression
+    # Utility mods get the boot — SkyUI never has patchable records anyway
     if plugin_path.name in GLOBAL_IGNORE_PLUGINS:
         print(f"GLOBAL_IGNORE: Dropping {plugin_path.name} (utility mod, no records)")
-        return
-        # Empty return creates empty iterator - caller gets zero records instantly
+        return  # Empty iterator — caller gets nothing, which is exactly what we want
     
     with plugin_path.open('rb') as f:
         if reader is None:
             raise RuntimeError("iter_records requires a valid reader instance")
         
-        # Skip TES4 header
+        # TES4 header is just metadata — skip it and get to the meat
         header = f.read(HEADER_SIZE)
         if len(header) == HEADER_SIZE and header[0:4] == b'TES4':
             data_size = struct.unpack('<I', header[4:8])[0]
             f.seek(data_size, 1)
+
+        # GRUPs are containers — if we don't track where they end, we walk out and read 
+        # the next record's guts as a header. That's how a tree became a pickaxe.
+        grup_stack: List[int] = []
 
         while True:
             if worker_instance and getattr(worker_instance, '_interrupted', False):
                 print(f"Reader interrupted: {plugin_path.name}")
                 break
 
-            # Yield GIL every 200 records
+            # Let Qt breathe every 200 records so MO2 doesn't hang
             record_count = getattr(iter_records, '_counter', 0) + 1
             iter_records._counter = record_count
             if record_count % 200 == 0:
                 QThread.msleep(0)
+
             header_start = f.tell()
+
+            # Pop any GRUPs we've walked out of — boundary cleanup
+            while grup_stack and header_start >= grup_stack[-1]:
+                grup_stack.pop()
+
             header = f.read(HEADER_SIZE)
             if len(header) < HEADER_SIZE:
                 break
 
             sig_bytes = header[0:4]
             
-            # ✅ FOXHUNT_FIX: Strict signature validation (uppercase/digits/space/underscore only)
+            # Bethesda loves weird bytes — make sure we actually hit a record header 
+            # and not garbage from the middle of some record's data payload
             valid = True
             for b in sig_bytes:
                 # Allow uppercase A-Z (65-90), digits 0-9 (48-57), space (32), underscore (95)
@@ -109,7 +118,7 @@ def iter_records(plugin_path: Path, mod_name: str = "", worker_instance: Optiona
                     break
             
             if not valid:
-                # Resync: skip 4 bytes and retry
+                # Resync: skip 4 bytes and retry — sometimes we land in a padding hole
                 f.seek(header_start + 4)
                 continue
             
@@ -123,8 +132,14 @@ def iter_records(plugin_path: Path, mod_name: str = "", worker_instance: Optiona
             next_record_pos = header_start + 24 + data_size
 
             if sig == 'GRUP':
-                # don't jump over the whole block — skip header and chew children naturally
+                # GRUP size includes its own 24-byte header — mark the fence so kids don't wander
+                grup_end = header_start + data_size
+                grup_stack.append(grup_end)
                 continue
+
+            # Cap at innermost GRUP boundary — prevents walking into next record's payload
+            if grup_stack:
+                next_record_pos = min(next_record_pos, grup_stack[-1])
 
             edid = ""
             full = ""
@@ -155,19 +170,15 @@ def iter_records(plugin_path: Path, mod_name: str = "", worker_instance: Optiona
                         stream = memoryview(chunk)  # You already have this
                         off = 0
                         while off + 8 <= chunk_left:
-                            # FIX 1: Kill the bytes() wrapper
                             sub_sig = stream[off:off+4].decode(errors='ignore')
                             
                             if sub_sig == 'XXXX':
-                                # FIX 2: int.from_bytes instead of struct.unpack
                                 large_size = int.from_bytes(stream[off+4:off+8], 'little')
                                 off += 8
-                                # FIX 3: Kill the bytes() wrapper here too
                                 sub_sig = stream[off:off+4].decode(errors='ignore')
                                 off += 6
                                 sub_sz = large_size
                             else:
-                                # FIX 4: int.from_bytes instead of struct.unpack
                                 sub_sz = int.from_bytes(stream[off+4:off+6], 'little')
                                 off += 6
                             

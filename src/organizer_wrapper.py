@@ -284,23 +284,36 @@ class OrganizerWrapper(LoggingMixin):
     # ------------------------------------------------------------------
     def read_loadorder_txt(self) -> List[str]:
         """
-        Return load order from profile's loadorder.txt.
-        Falls back to plugins.txt if loadorder.txt absent.
+        Build active list from loadorder.txt order + plugins.txt active filter.
+        Base masters always included since MO2 doesn't list them in plugins.txt.
         """
         loadorder_path = self._profile_dir / "loadorder.txt"
-        
+        full_order = []
         if loadorder_path.is_file():
             try:
                 lines = loadorder_path.read_text(encoding="utf-8").splitlines()
-                names = [ln.split("#")[0].strip() for ln in lines if ln.strip()]
-                if names:
-                    self.log_debug(f"Read {len(names)} entries from loadorder.txt")
-                    return names
+                full_order = [ln.split("#")[0].strip() for ln in lines if ln.strip()]
             except Exception as e:
-                self.log_warning(f"Could not read loadorder.txt: {e}")
+                self.log_warning(f"loadorder.txt read failed: {e}")
         
-        # Fallback: plugins.txt (active only, with * prefix)
-        return self._read_plugins_txt_active()
+        if not full_order:
+            return self._read_plugins_txt_active()
+        
+        # Active set from plugins.txt — only *starred lines
+        active_set = set(self._read_plugins_txt_active())
+        
+        # Base masters are always on — MO2 never puts them in plugins.txt
+        base_masters = {"Skyrim.esm", "Update.esm", "Dawnguard.esm",
+                        "HearthFires.esm", "Dragonborn.esm"}
+        
+        # Preserve load order, evict inactive non-base plugins
+        active = []
+        for plugin in full_order:
+            if plugin in base_masters or plugin in active_set:
+                active.append(plugin)
+        
+        self.log_debug(f"Active lineup: {len(active)} from {len(full_order)} load order")
+        return active
 
     def _read_plugins_txt_active(self) -> List[str]:
         """Read active plugins from plugins.txt."""
