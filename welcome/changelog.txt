@@ -1,0 +1,25 @@
+Hey, something changed — new mods, removed mods, maybe you just ran LOOT. Frankie needs to re-sniff the load order before you can patch anything.
+
+If the cache is warm this'll be quick. If not, grab a coffee while Snoopy does his thing.
+
+While you wait, here's what's new since you last saw me:
+
+0.9.1 — "The Cleanup"
+• Worker stripped to a dumb pipe. No more prefix math lies, no origin_plugin reassignment. Just extract → flatten → dedupe → hand off.
+• PatchGen owns the smarts now: plugin_to_idx lookup, FE/ESL handling, Loom resolution once per record.
+• Loom cache guards fixed — JSON cache won't deserialize bytes as garbage anymore.
+• BOS Generate button greyed-out bug killed. Controller stays in its lane, BOS handles its own state.
+• BOS EDID column works. Reader extracts EDID, table shows it, you know 040179C9 is a pickaxe.
+• Pluginless body/skin mods work. "Body" category added, asset swap scanner no longer dies on zero plugins.
+• Config save fixed. Welcome screen no longer orphans patch_settings to a dangling object.
+• Panic button added. Dev settings can hammer config to disk without closing.
+• Tooltips everywhere. Every widget in BOS and SP now tells you what it does.
+
+Known quirk:
+• Loom DNAM SE offset 12 is flags, not anim type. Still using EDID fallback for weapon animation detection. Needs research.
+
+Need help?
+  https://discord.gg/f6dFYNEBf
+  https://discord.gg/kR9Wjv6GG
+
+Scroll down, check the box, and smash Continue when it's ready.

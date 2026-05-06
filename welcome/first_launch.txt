@@ -1,0 +1,46 @@
+Welcome to SkyGen® — where xEdit fears to tread.
+
+SkyGen® writes SkyPatcher and BOS INIs for you. Pick your mods, pick a category, hit Generate. No plugin slots burned, no hex math, no manual FormID hunting.
+
+First time? Snoopy's gotta sniff every plugin in your load order to know what's patchable. On a big list like Mayhem's Madness or Mayhem's Truth, that'll take a minute. Don't panic if it looks frozen — it's just crunching numbers so the rest of the UI feels instant.
+
+How to use this thing:
+
+SkyPatcher (SP)
+  • Single Mod: Target Mod → Source Mod → Category → Filter/Action/Value → Generate.
+  • Modlist Gen: Check "Generate Entire ModList" → Category → Generate.
+  • All Categories: Check "Generate All Categories" → Generate.
+  • Loom toggle (dev settings): Auto-weaves keywords from record DNA. Disables manual Sentence Builder when ON.
+
+Base Object Swapper (BOS)
+  • M2M: Pick Target Mod → Source Mod → Category → Generate.
+  • FID Scan: Check "Scan all mods" → pick Category → Scan → Generate.
+  • FID table shows checked FormIDs. Export to JSON for round-trip editing.
+
+Rules to live by:
+• Trust the Blacklist. If a mod's missing from the combos, it's probably a framework or utility. The Auditor will show you why.
+• These patches run at game time. Add or remove them mid-save — no "Missing Plugin" doom.
+• You NEED an output folder. Pick one, generate there, then move files to your mod folder if you want.
+• The Blacklist Wizard button is your friend if something looks off in the combos.
+• Synthesis MUST be disabled if the blacklist didn't catch it. Synthesis is a patcher, not content — it'll crash the scan if it slips through.
+
+What's new in 0.9.1:
+• Worker finally shut up — no more lying about plugin origins. Dumb pipe now.
+• PatchGen grew a spine — handles all the keyword smarts itself.
+• Loom won't crash on cached runs anymore.
+• BOS button state war is over — no more greyed-out Generate for no reason.
+• EDID column in BOS table so you know what 00012345 actually is.
+• Pluginless body/skin mods actually work now.
+• Config actually saves if you hit the welcome screen.
+• Panic button in dev settings — hammer config to disk instantly.
+• Tooltips everywhere. No more guessing.
+
+Need help?
+Support is offered on Discord.
+  https://discord.gg/f6dFYNEBf
+  https://discord.gg/kR9Wjv6GG
+  https://discord.com/channels/1358821582654406676/1396947505568026735
+
+Full manual and source: https://github.com/outtamercy/SkyGen
+
+Scroll down, check the box, and hit Continue when it lights up.
