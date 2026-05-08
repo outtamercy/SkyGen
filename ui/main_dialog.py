@@ -263,13 +263,21 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
                     self.controller._rich_silos.clear()
                 if hasattr(self.controller, '_plugin_to_mod_bridge'):
                     self.controller._plugin_to_mod_bridge.clear()
+
                 # fire up Frankie immediately
                 self.controller._deferred_pm_init()
+
             # reset geometry
             self._geometry_restored = False
             self._geometry_fully_restored = False
+
+            # Kill old forge before spawning new one — no double bellows
+            if self.controller and hasattr(self.controller, 'guard'):
+                self.controller.guard.dismiss_welcome()
+
             # drop back to welcome
             self.panel_stack.setCurrentWidget(self.welcome_panel)
+            self.welcome_panel.load_situation_text("ml_change")
             self.game_version_group.setVisible(False)
             self.output_type_group.setVisible(False)
             self.advanced_settings_group.setVisible(False)
@@ -646,7 +654,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.panel_stack.addWidget(self.bos_panel)  # 1
         
         # Welcome panel appended at index 2 (default visible)
-        self.welcome_panel = WelcomePanel(self)
+        self.welcome_panel = WelcomePanel(self.plugin_path, self)
         self.panel_stack.addWidget(self.welcome_panel)  # 2
         self.panel_stack.setCurrentWidget(self.welcome_panel)
         
@@ -658,6 +666,9 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
 
     def _enter_workspace(self):
         """User survived the welcome screen—unlocking workspace."""
+        # Guard: welcome phase ending, purge forge/sound before switching panels
+        if self.controller and hasattr(self.controller, 'guard'):
+            self.controller.guard.dismiss_welcome()
         self.log_info("Welcome acknowledged—unlocking workspace")
         
         ac = self.config_manager.get_application_config()
@@ -860,27 +871,17 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
             # Never acknowledged ever
             show_welcome = True
             self.log_info("First run—welcome screen required")
-        elif self.controller and self.controller.profile_manager:
-            # Single source of truth: PM's SHA256 sig
-            stored_sig = getattr(ac, 'welcome_load_order_sig', '')
-            current_sig = self.controller.profile_manager.load_order_signature if self.controller.profile_manager else ''
-            
-            if current_sig and stored_sig != current_sig:
-                show_welcome = True
-                ac.welcome_acknowledged = False
-                self.log_info(f"Modlist changed ({stored_sig[:8]} → {current_sig[:8]})—resealing welcome")
-            elif not stored_sig and current_sig:
-                # Migration: no sig stored yet, capture now without showing
-                ac.welcome_load_order_sig = current_sig
-                self.config_manager._do_write_ini()
-                self.log_info(f"Migration: captured sig {current_sig}")
         
         if hasattr(self, 'welcome_panel') and show_welcome:
+            # Load the asset FIRST so the page has content before it becomes visible
+            self.welcome_panel.load_asset(guard_situation)
+            
             self.panel_stack.setCurrentWidget(self.welcome_panel)
             self.game_version_group.setVisible(False)
             self.output_type_group.setVisible(False)
-            self.advanced_settings_group.setVisible(False)  # <-- Hide dev section during welcome
-            return  # Stop here. We'll finish setup after they click Continue.
+            self.advanced_settings_group.setVisible(False)
+            
+            return  # Stop here
         
         # OK, they're legit. Reveal the engine controls now that 
         # they've theoretically read the manual.
@@ -986,6 +987,13 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         if hasattr(self, 'welcome_panel'):
             self.controller.panels_ready.connect(self.welcome_panel.on_panels_ready)
             self.welcome_panel.continue_clicked.connect(self._enter_workspace)
+
+        # Guard owns forge lifecycle
+        if (hasattr(self, 'controller') and self.controller and 
+            hasattr(self.controller, 'guard')):
+            self.controller.guard.welcome_dismissed.connect(
+                self.welcome_panel._on_dismissed
+            )
              
         self.controller._update_generate_button()
         # Populate initial data AFTER wiring is complete

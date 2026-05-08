@@ -86,6 +86,7 @@ class ApplicationConfig(BaseConfig):
         self.welcome_acknowledged: bool = False      # Did they click Continue?
         self.welcome_load_order_sig: str = ""        # Which modlist they agreed to
         self.loom_enabled: bool = False
+        self.welcome_view_count: int = 0
 
 # ---------- manager ----------
 class ConfigManager(LoggingMixin):

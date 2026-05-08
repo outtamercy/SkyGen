@@ -163,3 +163,8 @@ class ThemeManager(LoggingMixin):
     # ------------------------------------------------------------------
     def get_current_theme_name(self) -> str:
         return self.config_manager.get_application_config().selected_theme
+
+    @property
+    def accent_color(self) -> str:
+        """Gold accent — centralized so QSS and widgets share one source of truth."""
+        return "#d4af37"

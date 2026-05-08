@@ -1,3 +1,24 @@
+SkyGen 0.9.1c — "GIFs Won, Video Died"
+WelcomePanel — The QtMultimedia Funeral
+
+    ABANDONED: QtMultimedia/MP4 approach. PyQt6 6.7.1 bindings vs MO2's Qt 6.7.3 runtime = "procedure entry point not found" hell. No DLL shim fixes it. RIP.
+    CONFIRMED WORKING: QMovie GIF via QLabel + setScaledContents(True) + CacheAll. Silent, no audio, no ABI nightmare.
+    3 GIFs in repo: SkyGenforge-optimize.gif (forge), Septim-optimize.gif (coin), video3-optimize.gif (fallback).
+    Stripped all video corpses: _load_video, _start_video_playback, _poll_video_state, _on_media_error, _handle_video_failure, _log_video, load_situation_video — all deleted. _purge_video renamed to _purge_media, now only kills GIF labels.
+    Counter buried in config: welcome_view_count lives inside skygen_config.ini under [Application]. No standalone wp_counter.txt to make modders paranoid they're being tracked.
+    Hybrid load logic: First 3 opens rotate text files (first_launch.txt → readme.txt → changelog.txt). Run 4+ cycles the 3 GIFs. DEBUG_FORCE_WELCOME_GIF = True bypasses rotation and always goes GIF.
+    Fixed: load_asset(guard_situation) runs before setCurrentWidget(welcome_panel) in main_dialog.py. Reversing them = black/empty GIF.
+    Fixed: _on_dismissed dupe removed. Guard signal wires straight to the private method. No middleman.
+
+Constants
+
+    ADDED: DEBUG_FORCE_WELCOME_GIF toggle in core/constants.py.
+    REMOVED: DEBUG_WELCOME_GIF_INDEX — dead now that panel cycles on its own.
+
+Config
+
+    ADDED: welcome_view_count: int = 0 to ApplicationConfig. Auto-saves/auto-loads via existing to_dict()/from_dict() — no parser changes needed.
+
 # SkyGen 0.9.1-dev — CHANGELOG
 # 05-03-26
 

@@ -39,6 +39,11 @@ CURRENT_APP_VERSION = "0.9.0-BETA"
 DEBUG_MODE = False # Set to True for verbose debugging, False for normal operation
 BYPASS_BLACKLIST = False
 TRACEBACK_LOGGING = False
+
+# Welcome panel test toggle
+# Set True to bypass text mode
+DEBUG_FORCE_WELCOME_GIF = False
+
 # FormID math tweak for massive load orders (870+ plugins) - keeps prefix-to-index mapping honest
 MOD_INDEX_OFFSET = 0xFE000000
 MAX_LOG_FILE_SIZE_MB = 5

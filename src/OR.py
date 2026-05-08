@@ -383,94 +383,75 @@ class OneRing(QObject, LoggingMixin):
     # ============================================================
     
     def populate_bos_combos(self, category_filter: str = "") -> None:
-        """Fill BOS target/source — bulletproof against dict vs object entries."""
+        """Fill BOS target/source — plugin names win, folder names for pluginless only."""
         if not self.controller.bos_panel:
             return
         
-        # ---- Helper: dict or dataclass, we don't care ----
-        def _get(entry, key, default=None):
-            if isinstance(entry, dict):
-                return entry.get(key, default)
-            return getattr(entry, key, default)
+        panel = self.controller.bos_panel
+        merged: List[Tuple[str, int]] = []
+        seen_lower: Set[str] = set()
         
-        all_silos = self.controller._rich_silos
-        rich_plugins: dict = {}
-        rich_folders: dict = {}
+        cat_key = category_filter.strip() if category_filter else ""
+        check_sigs = BOS_CATEGORIES.get(cat_key, {cat_key.upper()}) if cat_key and cat_key != "All" else set()
         
-        # ---- STRUCTURE DETECTION ----
-        if isinstance(all_silos, dict):
-            # Try nested first
-            for nested_key in ("BOS", "BOS_MOD", "BOS_MODS"):
-                if nested_key in all_silos and isinstance(all_silos[nested_key], dict):
-                    if nested_key in ("BOS", "BOS_MODS"):
-                        rich_plugins = all_silos[nested_key]
-                    else:
-                        rich_folders = all_silos[nested_key]
-
-        # Invert bridge so we can swap folder names for plugin names
+        # ---- Bridge: plugin_name -> mod_folder (invert for folder->plugins) ----
         folder_to_plugins: Dict[str, List[str]] = {}
-        if hasattr(self.controller, '_plugin_to_mod_bridge'):
-            for plugin_name, folder_name in self.controller._plugin_to_mod_bridge.items():
-                folder_to_plugins.setdefault(folder_name, []).append(plugin_name)
+        bridge = getattr(self.controller, '_plugin_to_mod_bridge', {})
+        for plugin_name, folder_name in bridge.items():
+            folder_to_plugins.setdefault(folder_name, []).append(plugin_name)
+        
+        # Case-insensitive lookup dict for BOS plugin silo
+        bos_plugins = self.controller._rich_silos.get("BOS_PLUGINS", {})
+        bos_plugins_lower: Dict[str, Any] = {k.lower(): v for k, v in bos_plugins.items()}
+        
+        # ---- PATH 1: BOS_PLUGINS silo (plugin names, direct) ----
+        for plugin_name, entry in bos_plugins.items():
+            if check_sigs:
+                sigs = getattr(entry, 'signatures', set())
+                if not sigs.intersection(check_sigs):
+                    continue
+            merged.append((plugin_name, getattr(entry, 'lo_index', 9999)))
+            seen_lower.add(plugin_name.lower())
+        
+        # ---- PATH 2: BOS_MODS silo (folder names → plugin names via bridge) ----
+        bos_mods = self.controller._rich_silos.get("BOS_MODS", {})
+        for folder_name, entry in bos_mods.items():
+            if folder_name.lower() in seen_lower:
+                continue
             
-            # Flat fallback: keys are "BOS:Name" or "BOS_MOD:Name"
-            if not rich_plugins and not rich_folders:
-                for key, entry in all_silos.items():
-                    silo_type = _get(entry, 'silo_type', '')
-                    name = key.split(':', 1)[-1] if ':' in key else key
-                    if silo_type == 'BOS':
-                        rich_plugins[name] = entry
-                    elif silo_type in ('BOS_MOD', 'BOS_MODS'):
-                        rich_folders[name] = entry
-        
-        self.log_debug(f"BOS silos: plugins={len(rich_plugins)}, folders={len(rich_folders)}")
-        
-        # ---- MERGE: plugin names win, folder names only if pluginless ----
-        merged = []
-        seen: Set[str] = set()
-        
-        for folder_name, entry in rich_plugins.items():
             plugins = folder_to_plugins.get(folder_name, [])
             if plugins:
-                # Mod has plugins — show plugin name, not folder name
                 for plugin_name in sorted(plugins):
-                    if plugin_name not in seen:
-                        merged.append((plugin_name, _get(entry, 'lo_index', 9999), entry, True))
-                        seen.add(plugin_name)
+                    p_lower = plugin_name.lower()
+                    if p_lower not in seen_lower:
+                        lo_idx = getattr(bos_plugins_lower.get(p_lower), 'lo_index', 9999)
+                        merged.append((plugin_name, lo_idx))
+                        seen_lower.add(p_lower)
             else:
-                # Already keyed by plugin name or no bridge data — pass through
-                if folder_name not in seen:
-                    merged.append((folder_name, _get(entry, 'lo_index', 9999), entry, True))
-                    seen.add(folder_name)
+                if check_sigs:
+                    sigs = getattr(entry, 'signatures', set())
+                    if not sigs.intersection(check_sigs):
+                        continue
+                merged.append((folder_name, getattr(entry, 'lo_index', 9999)))
+                seen_lower.add(folder_name.lower())
         
-        for folder_name, entry in rich_folders.items():
-            if folder_name not in seen:
-                merged.append((folder_name, _get(entry, 'lo_index', 9999), entry, False))
-                seen.add(folder_name)
-        
-        # ---- CATEGORY FILTER ----
-        if category_filter and category_filter.strip() and category_filter != "All":
-            cat_key = category_filter.strip()
-            check_sigs = BOS_CATEGORIES.get(cat_key, {cat_key.upper()})
-            filtered = []
-            for name, idx, entry, is_plugin in merged:
-                if _get(entry, 'is_blessed', False) or name in BLESSED_CORE_FILES:
-                    filtered.append((name, idx, entry, is_plugin))
+        # ---- PATH 3: BOS_MOD silo (pluginless asset mods, folder names) ----
+        pluginless = self.controller._rich_silos.get("BOS_MOD", {})
+        for folder_name, entry in pluginless.items():
+            if folder_name.lower() in seen_lower:
+                continue
+            if check_sigs:
+                sigs = getattr(entry, 'signatures', set())
+                if not sigs.intersection(check_sigs):
                     continue
-                sigs = _get(entry, 'signatures', set())
-                # Handle string signatures from INI parser
-                if isinstance(sigs, str):
-                    sigs = set(sigs.split(', ')) if sigs else set()
-                if sigs.intersection(check_sigs):
-                    filtered.append((name, idx, entry, is_plugin))
-            if cat_key.upper() in {"BODY", "SKIN", "ASSET_SKIN", "ASSET_BODY"} and not filtered:
-                filtered = list(merged)
-            merged = filtered
+            merged.append((folder_name, 9999))
+            seen_lower.add(folder_name.lower())
         
-        bos_names = [name for name, _, _, _ in merged]
+        # Sort by load order
+        merged.sort(key=lambda x: x[1])
+        bos_names = [name for name, _ in merged]
         
         # ---- POPULATE ----
-        panel = self.controller.bos_panel
         old_target = panel.target_combo.currentText()
         old_source = panel.source_combo.currentText()
         
@@ -488,7 +469,8 @@ class OneRing(QObject, LoggingMixin):
             panel.source_combo.setCurrentText(old_source)
             
         panel.target_combo.blockSignals(False)
-        panel.source_combo.blockSignals(False)        
+        panel.source_combo.blockSignals(False)
+        self.log_debug(f"BOS combos: {len(bos_names)} entries (category={cat_key})")    
         
     def m2m_category_changed(self, category: str) -> None:
         """

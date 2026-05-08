@@ -2,7 +2,7 @@ import os
 import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, List
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal, QThread # type: ignore
 from .logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_DEBUG, MO2_LOG_WARNING
 
 class Guard(QObject, LoggingMixin):
@@ -18,6 +18,7 @@ class Guard(QObject, LoggingMixin):
     continue_enabled = pyqtSignal()
     # Force welcome screen when ML changes
     welcome_required = pyqtSignal(str)  # reason: 'ml_change', 'logic_change', 'fresh', etc.
+    welcome_dismissed = pyqtSignal()  # Forge/sound cleanup trigger
     
     def __init__(self, plugin_path: Path, organizer_wrapper: Any):
         QObject.__init__(self)
@@ -174,3 +175,8 @@ class Guard(QObject, LoggingMixin):
         }
         
         return text_dir / mapping.get(situation, "first_launch.txt")
+
+    def dismiss_welcome(self) -> None:
+        """User clicked Continue — welcome phase is over. Purge forge."""
+        self.welcome_dismissed.emit()
+        self.log_debug("Guard: Welcome dismissed, forge cleanup signaled")
