@@ -286,7 +286,9 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
     def name(self) -> str: return PLUGIN_NAME
     def author(self) -> str: return PLUGIN_AUTHOR
     def description(self) -> str: return PLUGIN_DESCRIPTION
-    def version(self) -> mobase.VersionInfo: return mobase.VersionInfo(PLUGIN_VERSION)
+    def version(self) -> mobase.VersionInfo:
+        ver_str = ".".join(str(x) for x in PLUGIN_VERSION[:3])
+        return mobase.VersionInfo(ver_str, mobase.VersionScheme.DISCOVER)
     def isActive(self) -> bool: return True
     def settings(self) -> List[mobase.PluginSetting]: return []
     def displayName(self) -> str: return PLUGIN_NAME
