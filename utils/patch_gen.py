@@ -64,8 +64,11 @@ class PatchAndConfigGenerationManager(LoggingMixin):
         app_config = getattr(dialog_instance, 'app_config', None)
         loom_enabled = getattr(app_config, 'loom_enabled', False) if app_config else False
         
+        # Cat Gen always weaves — auto-mode needs auto-keywords
+        # ML Gen and Single respect the toggle
+        force_loom = generate_all_categories or loom_enabled
+        
         # Fix PE's ESL blindspot and weave Loom keywords up front.
-        # Doing it here means both Single and Mass modes see clean data.
         for fid, rec in all_exported_target_bases_by_formid.items():
             origin = rec.get("origin_plugin", "Unknown")
             if not origin or origin == "Unknown":
@@ -73,7 +76,7 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 if origin and origin != "Unknown":
                     rec["origin_plugin"] = origin
             
-            if loom_enabled and not rec.get("keyword_value"):
+            if force_loom and not rec.get("keyword_value"):
                 loom_kw = self.loom.resolve(rec)
                 if loom_kw:
                     rec["keyword_value"] = loom_kw

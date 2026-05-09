@@ -513,9 +513,9 @@ class PluginExtractor(LoggingMixin):
             else:
                 expected_child_end = child_start_offset + 24 + child_data_size
 
-            if f.tell() != expected_child_end:
-                self.log_warning(f"  File pointer mismatch after parsing child {child_signature.decode(errors='ignore')} (start: {child_start_offset}). Expected {expected_child_end}, actual {f.tell()}. Seeking to expected position.")
-                f.seek(expected_child_end)
+        if f.tell() != group_end_offset:
+            self.log_warning(f"  File pointer mismatch at end of GRUP {group_label_raw.decode(errors='ignore')} (start: {group_start_offset}). Expected {group_end_offset}, actual {f.tell()}. Seeking to expected end.")
+            f.seek(group_end_offset)
 
         if f.tell() != group_end_offset:
             self.log_warning(f"  File pointer mismatch at end of GRUP {group_label_raw.decode(errors='ignore')} (start: {group_start_offset}). Expected {group_end_offset}, actual {f.tell()}. Seeking to expected end.")

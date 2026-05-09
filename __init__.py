@@ -292,7 +292,8 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
     def isActive(self) -> bool: return True
     def settings(self) -> List[mobase.PluginSetting]: return []
     def displayName(self) -> str: return PLUGIN_NAME
-    def icon(self) -> QIcon: return QIcon()
+    def icon(self) -> QIcon:
+        return QIcon(str(self.plugin_path / "icons" / "SkyGen.ico"))
     def tooltip(self) -> str: return "Launch the SkyGen tool for automated patch generation."
     def group(self) -> int: return mobase.PluginSettingGroup.Tools
 
