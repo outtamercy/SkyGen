@@ -63,13 +63,23 @@ class OrganizerWrapper(LoggingMixin):
         mo2_ini_path = mo2_root / "ModOrganizer.ini"
         
         if not mo2_ini_path.is_file():
-            # Global install fallback: AppData/Local
-            global_path = Path.home() / "AppData" / "Local" / "ModOrganizer" / "ModOrganizer.ini"
-            if global_path.is_file():
-                mo2_ini_path = global_path
-                self.log_info(f"Global MO2 install detected: {mo2_ini_path}")
+            # Nolvus and other weird layouts: basePath might be MODS, not MO2
+            # Try sibling MO2 folder, then parent, then global
+            candidates = [
+                mo2_root.parent / "MO2" / "ModOrganizer.ini",
+                mo2_root.parent / "ModOrganizer.ini",
+                Path.home() / "AppData" / "Local" / "ModOrganizer" / "ModOrganizer.ini",
+            ]
+            found = None
+            for cand in candidates:
+                if cand.is_file():
+                    found = cand
+                    break
+            if found:
+                mo2_ini_path = found
+                self.log_info(f"MO2 INI found at: {mo2_ini_path}")
             else:
-                self.log_critical(f"ModOrganizer.ini not found at: {mo2_root} or {global_path}")
+                self.log_critical(f"ModOrganizer.ini not found. Tried: {mo2_root}, {candidates}")
                 raise RuntimeError("MO2 configuration not found in Portable or Global locations")
 
         # Parse INI first - BEFORE any config access
@@ -146,10 +156,40 @@ class OrganizerWrapper(LoggingMixin):
         
         self._game_path = game_path
         self._game_data_path = (game_path / "Data").resolve()
-        self._mods_path = (mo2_root / mods_path_raw).resolve()
-        self._overwrite_path = (mo2_root / "overwrite").resolve()
+
+        # modsPath can be absolute in shared-modlist setups
+        mods_path = Path(mods_path_raw)
+        if not mods_path.is_absolute():
+            mods_path = (mo2_root / mods_path_raw).resolve()
+        else:
+            mods_path = mods_path.resolve()
+        self._mods_path = mods_path
+
+        # MO2 instance overrides: if INI path doesn't exist, ask the API
+        # Shared-modlist setups (SE/VR) often store the real path in MO2's instance config
+        if not self._mods_path.exists():
+            try:
+                api_mods = Path(self.organizer.modsPath())
+                if api_mods.exists():
+                    self._mods_path = api_mods
+                    self.log_info(f"INI mods path missing — using MO2 API fallback: {api_mods}")
+            except Exception:
+                pass  # API not available, keep INI path for the warning
+
+        # overwrite can also be absolute
+        overwrite_raw = self._decode_byte_array(
+            config.get('General', 'overwritePath', fallback='overwrite')
+        )
+        if not overwrite_raw:
+            overwrite_raw = 'overwrite'
+        overwrite_path = Path(overwrite_raw)
+        if not overwrite_path.is_absolute():
+            overwrite_path = (mo2_root / overwrite_raw).resolve()
+        else:
+            overwrite_path = overwrite_path.resolve()
+        self._overwrite_path = overwrite_path
         
-        # Validate critical paths
+        # Validate paths — profile is the only real hard stop
         critical = {
             "game_data": self._game_data_path,
             "mods": self._mods_path,
@@ -158,8 +198,11 @@ class OrganizerWrapper(LoggingMixin):
         
         for name, path in critical.items():
             if not path.exists():
-                self.log_critical(f"Critical path does not exist: {name} = {path}")
-                raise RuntimeError(f"MO2 path validation failed: {name} = {path}")
+                if name == "profile":
+                    self.log_critical(f"Profile missing: {path}")
+                    raise RuntimeError(f"MO2 profile not found: {path}")
+                else:
+                    self.log_warning(f"Path not found yet: {name} = {path}")
         
         self.log_info(f"MO2 paths resolved: profile={self._profile_name}, mods={self._mods_path}")
         self.log_debug(f"Game data: {self._game_data_path}")

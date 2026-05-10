@@ -79,6 +79,9 @@ class ThemeManager(LoggingMixin):
                 old = QDir.current()
                 QDir.setCurrent(str(plugin_qss.parent))
                 content = plugin_qss.read_text(encoding="utf-8")
+                # only SkyGenBlue gets the frame swapper
+                if "skygenblue" in theme_name.lower():
+                    content = self._swap_skygenblue_bg(content)
                 QDir.setCurrent(str(old))
                 self.log_debug(f"Loaded plugin theme: {plugin_qss}")
                 return content
@@ -108,9 +111,8 @@ class ThemeManager(LoggingMixin):
                     match = re.search(r'url\([^)]+\)', qss_text)
                     if match:
                         self.log_debug(f"first rewritten url: {match.group()[:60]}…")
-                    self.target_widget.setStyleSheet(qss_text)  # 🔥 FIXED – use target_widget
-                    self.log_debug(f"Applied MO2 theme via MO2: {mo2_qss}")
-                    return ""
+                    self.log_debug(f"Loaded MO2 theme: {mo2_qss}")
+                    return qss_text
                 except Exception as e:
                     self.log_error(f"MO2 theme load failed: {e}", exc_info=True)
                     return None
@@ -141,6 +143,54 @@ class ThemeManager(LoggingMixin):
     # ------------------------------------------------------------------
     #  apply & persist
     # ------------------------------------------------------------------
+
+    def _swap_skygenblue_bg(self, qss_text: str) -> str:
+        """SkyGenBlue only — cycles Frame-X.jpg and forces stretch-to-fit."""
+        # find the image line (background-image or border-image)
+        m = re.search(r'(background-image|border-image):\s*url\([^)]+\)[^;]*;', qss_text)
+        if not m:
+            return qss_text
+
+        # sniff folder from the matched line
+        path_m = re.search(r'url\(([^)]+)\)', m.group(0))
+        if not path_m:
+            return qss_text
+
+        raw = path_m.group(1).strip("'\"").replace("\\", "/")
+        folder = raw.split("/")[0] if "/" in raw else "SkyGenBlue"
+        img_dir = self.plugin_themes_path / folder
+
+        if not img_dir.is_dir():
+            return qss_text
+
+        # grab Frame-1.jpg, Frame-2.jpg, etc.
+        exts = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
+        frames = sorted([
+            p for p in img_dir.iterdir()
+            if p.name.startswith("Frame-") and p.suffix.lower() in exts and p.is_file()
+        ])
+        if len(frames) < 2:
+            return qss_text
+
+        # read counter from config
+        ac = self.config_manager.get_application_config()
+        idx = ac.theme_bg_index
+
+        # pick next frame
+        selected = frames[idx % len(frames)]
+        rel = selected.relative_to(self.plugin_themes_path).as_posix()
+
+        # replace with border-image so Qt stretches to fit instead of 1:1 cropping
+        new_line = f"border-image: url('{rel}') 0 0 0 0 stretch stretch;"
+        new_qss = qss_text.replace(m.group(0), new_line, 1)
+
+        # bump and save
+        ac.theme_bg_index = (idx + 1) % len(frames)
+        self.config_manager.save_application_config(ac)
+        self.log_info(f"SkyGenBlue backdrop: {selected.name}")
+
+        return new_qss
+
     def apply_theme(self, theme_name: str) -> bool:
         qss_content = self._get_qss_content(theme_name)
         if qss_content is None:

@@ -87,6 +87,7 @@ class ApplicationConfig(BaseConfig):
         self.welcome_load_order_sig: str = ""        # Which modlist they agreed to
         self.loom_enabled: bool = False
         self.welcome_view_count: int = 0
+        self.theme_bg_index: int = 0  # which backdrop frame we're on
 
 # ---------- manager ----------
 class ConfigManager(LoggingMixin):
@@ -134,6 +135,7 @@ class ConfigManager(LoggingMixin):
         # Load welcome seal state (defaults to False/empty if missing)
         ac.welcome_acknowledged     = app.get("welcome_acknowledged", str(ac.welcome_acknowledged)).lower() == 'true'
         ac.welcome_load_order_sig   = app.get("welcome_load_order_sig", ac.welcome_load_order_sig)
+        ac.theme_bg_index           = int(app.get("theme_bg_index", str(ac.theme_bg_index)))
         # Grab the profile-specific seals too — stuff like welcome_app_version_Vanilla Skyrim SE
         # These are dynamic keys so the loader won't see them unless we loop
         for key, value in app.items():

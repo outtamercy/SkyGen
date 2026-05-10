@@ -44,7 +44,7 @@ class BlacklistManager(LoggingMixin):
         if not rules_path.exists():
             return
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             config.read(rules_path, encoding='utf-8')
             if 'UserRules' in config:
                 for plugin_name, rule in config['UserRules'].items():
@@ -107,7 +107,7 @@ class BlacklistManager(LoggingMixin):
         profile_name = self.profile_mgr.wrapper.profile_name
         rules_path = self.plugin_path / DATA_DIR_NAME / USER_RULES_FILE_NAME.format(profile=profile_name)
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             clean_rules = {name: rule for name, rule in self._user_rules.items() if name and rule}
             if clean_rules:
                 config['UserRules'] = clean_rules
@@ -176,7 +176,7 @@ class BlacklistManager(LoggingMixin):
         rules_path = self.plugin_path / DATA_DIR_NAME / USER_RULES_FILE_NAME.format(profile=profile_name)
         
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             if rules_path.exists():
                 try:
                     config.read(rules_path, encoding='utf-8')
@@ -218,7 +218,7 @@ class BlacklistManager(LoggingMixin):
         if not rules_path.exists():
             return
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(strict=False)
             config.read(rules_path, encoding='utf-8')
             if 'AutoBlacklist' in config:
                 for plugin_name, reason in config['AutoBlacklist'].items():

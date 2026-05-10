@@ -892,7 +892,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         self.set_output_type(ac.output_type, adjust_size=False)
         
         # Restore dev-section collapse state
-        hidden = getattr(ac, 'dev_settings_hidden', False)
+        hidden = getattr(ac, 'dev_settings_hidden', True)
         self.hide_dev_btn.setChecked(hidden)
         self.dev_container.setVisible(not hidden)
         self.hide_dev_btn.setText("Show Dev Settings" if hidden else "Hide Dev Settings")
