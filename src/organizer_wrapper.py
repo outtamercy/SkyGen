@@ -63,12 +63,13 @@ class OrganizerWrapper(LoggingMixin):
         mo2_ini_path = mo2_root / "ModOrganizer.ini"
         
         if not mo2_ini_path.is_file():
-            # Nolvus and other weird layouts: basePath might be MODS, not MO2
-            # Try sibling MO2 folder, then parent, then global
+            # Global install: game name from basePath folder (e.g., SkyrimSE)
+            game_name = mo2_root.name
             candidates = [
-                mo2_root.parent / "MO2" / "ModOrganizer.ini",
-                mo2_root.parent / "ModOrganizer.ini",
-                Path.home() / "AppData" / "Local" / "ModOrganizer" / "ModOrganizer.ini",
+                mo2_root.parent / "MO2" / "ModOrganizer.ini",          # Nolvus
+                mo2_root.parent / "ModOrganizer.ini",                   # flat portable
+                Path.home() / "AppData" / "Local" / "ModOrganizer" / game_name / "ModOrganizer.ini",  # global game-specific
+                Path.home() / "AppData" / "Local" / "ModOrganizer" / "ModOrganizer.ini",              # global flat
             ]
             found = None
             for cand in candidates:
