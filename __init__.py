@@ -278,7 +278,7 @@ class SkyGenPlugin(mobase.IPluginTool, LoggingMixin):
             self.dialog._flush_viewer_log_to_disk()
         
         self.log_info("SkyGen plugin tearing down. Closing log file.")
-        SkyGenLogger().close_log_file()
+        SkyGenLogger().close()
 
     # ------------------------------------------------------------------ #
     #  required IPluginTool interface

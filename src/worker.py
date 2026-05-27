@@ -246,8 +246,8 @@ class GenerationWorker(QRunnable, LoggingMixin):
 
         # ---- Worker owns raw cache ----
         plugins_slug = hashlib.md5(','.join(sorted(selected_plugins)).encode()).hexdigest()[:12]
-        lo_slug = hashlib.md5(','.join(self.active_plugins or []).encode()).hexdigest()[:12]
-        cache_key = f"raw_v2_{mode}_{plugins_slug}_{target_category or 'all'}_lo{lo_slug}"
+        cache_key = f"raw_v2_{mode}_{plugins_slug}_{target_category or 'all'}"
+        # lo_slug killed — raw extraction reads plugin files directly, load order don't matter
 
         self.log_info(f"RAW_AUDIT: mode={mode}, plugins={len(selected_plugins)}, cat='{target_category}'")
         raw_records: List[Dict[str, Any]] = []

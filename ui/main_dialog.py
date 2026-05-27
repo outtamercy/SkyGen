@@ -53,6 +53,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
+        self.setVisible(False)  # stay hidden until startup_complete flips
         self.controller: Optional[SkyGenUIController] = None
         self.log_info("SkyGenMainDialog initialized.")
         self.plugin_path = plugin_path.resolve()
@@ -133,6 +134,7 @@ class SkyGenMainDialog(QDialog, LoggingMixin):
     def set_startup_complete(self) -> None:
         """Mark dialog as ready to be shown by controller."""
         self._startup_complete = True
+        self.setVisible(True)
         self.log_debug("Main dialog unlocked for display")
 
     def bulk_log_restore(self, buffer: list[str]) -> None:

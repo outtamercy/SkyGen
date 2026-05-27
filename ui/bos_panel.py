@@ -5,11 +5,14 @@ from PyQt6.QtWidgets import ( # type: ignore
     QWidget, QVBoxLayout, QGroupBox, QGridLayout, QLabel, QCheckBox,
     QComboBox, QLineEdit, QPushButton, QHBoxLayout, QToolButton,
     QSizePolicy, QFileDialog, QSplitter, QTableWidget, QSpinBox,
-    QTableWidgetItem, QHeaderView, QMessageBox, QAbstractItemView, QCompleter
+    QTableWidgetItem, QHeaderView,     QMessageBox, QAbstractItemView, QCompleter,
+    QListWidget,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer, QFileSystemWatcher # type: ignore
 from ..utils.logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_WARNING, MO2_LOG_ERROR, MO2_LOG_DEBUG
 from .panel_base import PanelGeometryMixin
+import json
+import random
 from ..utils.bos_processor import BosProcessor
 from ..utils.bos_writer import BosWriter
 import json
@@ -37,20 +40,18 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
         # Source of truth: data list
         self._fid_data: List[Dict[str, Any]] = []
-
+        self._pool_sources: List[str] = []
         self._processor = BosProcessor(main_dialog.organizer_wrapper)
 
         self._build_ui()
         self._wire_internal()
-        self._reload_json_if_present()
         self._refresh_scan_btn()
         self.setAcceptDrops(True)
 
     # ---------- Data-centric row management ----------
 
     def _add_fid_row(self, data: str | dict, checked: bool = True, 
-                     read_only: bool = True, mod_name: str = "",
-                     is_asset_swap: bool = False) -> None:
+                     read_only: bool = True, mod_name: str = "") -> None:
         """Slap a new row in - handles both old string calls and new dicts."""
         # Normalize input (strings are legacy, dicts are current)
         if isinstance(data, str):
@@ -84,7 +85,6 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             'target_fid': target_fid,
             'source_mod': source_mod,
             'source_fid': source_fid,
-            'is_asset_swap': is_asset_swap
         }
         
         # Make the row
@@ -142,9 +142,6 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             chk_item = self._table.item(row, 0)
             if not (chk_item and chk_item.checkState() == Qt.CheckState.Checked):
                 continue
-                
-            if row >= len(self._fid_data):
-                continue
             
             # Table layout: 1=Source Plugin, 2=Source FID, 3=Target Plugin, 4=Target FID
             src_mod_item = self._table.item(row, 1)
@@ -160,8 +157,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 'target_fid': tgt_fid_item.text() if tgt_fid_item else "",
                 'source_mod': src_mod_item.data(Qt.ItemDataRole.UserRole) or src_mod_item.text() if src_mod_item else "",
                 'source_fid': source_fid,
-                'form_id': source_fid,  # Generation expects this key
-                'is_asset_swap': self._fid_data[row].get('is_asset_swap', False),
+                'form_id': source_fid,
                 'edid': edid_item.text() if edid_item else "",
             }
             checked_records.append(d)
@@ -280,6 +276,26 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         
         mod_vbox.addLayout(cat_row)
 
+        # Pool mode toggle
+        pool_toggle_row = QHBoxLayout()
+        self.pool_mode_cb = QCheckBox("Multi-Source Pool")
+        self.pool_mode_cb.setToolTip(
+            "Let SkyGen draft every mod in your load order that matches this category. "
+            "Hover the Source box to see who got picked for the team."
+        )
+        pool_toggle_row.addWidget(self.pool_mode_cb)
+        pool_toggle_row.addStretch(1)
+        mod_vbox.addLayout(pool_toggle_row)
+
+        # Pool search filter
+        self.pool_search = QLineEdit()
+        self.pool_search.setPlaceholderText("Search mods...")
+        self.pool_search.setVisible(False)
+        mod_vbox.addWidget(self.pool_search)
+
+        # Multi-source pool list (hidden until toggled)
+        self.pool_list = QListWidget()
+
         lay.addWidget(mod_group, 0, 0, 1, 6)
 
         # Output Folder
@@ -395,9 +411,11 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self._export_btn.clicked.connect(self._export_formid_list)
 
         self._cat_combo = QComboBox()
-        self._cat_combo.addItems(["All", "Tree", "Furniture", "Container", "Light", "Misc"])
+        self._cat_combo.setMinimumWidth(100)
+        self._cat_combo.addItems(["All"] + sorted(BOS_CATEGORIES.keys()))
 
-        self._mode_lbl = QLabel("Manual mode")
+        self._mode_lbl = QLabel("Manual")
+        self._mode_lbl.setMinimumWidth(120)
         self.scan_all_cb = QCheckBox("Scan all mods")
         self._row_count_lbl = QLabel("0/0")
         self.generate_btn = QPushButton("Generate Patch")
@@ -480,7 +498,11 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         
         # Scan mode toggle
         self.scan_all_cb.toggled.connect(self._on_scan_mode_changed)
-        
+
+        # Pool mode toggle
+        self.pool_mode_cb.toggled.connect(self._on_pool_mode_changed)
+        self.pool_search.textChanged.connect(self._filter_pool_list)
+
         # Generate button state updates
         self.target_combo.currentTextChanged.connect(self._update_button_state)
         self.source_combo.currentTextChanged.connect(self._update_button_state)
@@ -517,7 +539,9 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             if hasattr(self._md.controller, 'one_ring') and self._md.controller.one_ring:
                 cat_filter = "" if text == "All" else text.strip()
                 self._md.controller.one_ring.populate_bos_combos(cat_filter)
-                self._md.controller.patch_settings.m2m_category = text.strip()
+        # Pool mode active? Re-roll the draft list for the new category
+        if self.pool_mode_cb.isChecked():
+            self._auto_select_pool_sources()
 
     def _update_button_state(self) -> None:
         self._refresh_scan_btn()
@@ -565,8 +589,86 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.target_combo.setEnabled(not scan_all and has_category)
         self.source_combo.setEnabled(not scan_all and has_category)
         
+        # Pool mode only active in M2M
+        self.pool_mode_cb.setEnabled(not scan_all and has_category)
+        if scan_all:
+            self.pool_list.setVisible(False)
+        
         self._refresh_scan_btn()
         self._update_button_state()
+
+    def _populate_pool_list(self) -> None:
+        """Fill pool list with BOS-silo mods."""
+        self.pool_list.clear()
+        if not hasattr(self._md, 'controller') or not self._md.controller:
+            return
+        bos_silo = self._md.controller._rich_silos.get("BOS_PLUGINS", {})
+        names = sorted(bos_silo.keys())
+        self.pool_list.addItems(names)
+
+    def _filter_pool_list(self, text: str = "") -> None:
+        """Hide pool list items that don't match search text."""
+        needle = text.lower()
+        for i in range(self.pool_list.count()):
+            item = self.pool_list.item(i)
+            item.setHidden(needle not in item.text().lower())
+
+    def _on_pool_mode_changed(self, checked: bool) -> None:
+        """Toggle auto-source pool mode."""
+        if checked:
+            self._auto_select_pool_sources()
+            self.source_combo.setEnabled(False)
+        else:
+            self._pool_sources.clear()
+            self.source_combo.setEnabled(True)
+            self.source_combo.setEditText("")
+            self.source_combo.setToolTip("")
+        self._update_button_state()
+
+    def _auto_select_pool_sources(self) -> None:
+        """Draft every BOS-silo mod that matches the current category."""
+        self._pool_sources.clear()
+        if not hasattr(self._md, 'controller') or not self._md.controller:
+            return
+        
+        category = self._m2m_cat_combo.currentText()
+        if not category or category == "All":
+            self.source_combo.setEditText("Auto: nobody")
+            self.source_combo.setToolTip("Pick a real category first — can't draft 'em all")
+            return
+        
+        check_sigs = BOS_CATEGORIES.get(category, set())
+        bos_silo = self._md.controller._rich_silos.get("BOS_PLUGINS", {})
+        
+        # Grab anyone who has the right record types
+        # But don't draft the victim into its own replacement team
+        candidates = []
+        target_lower = self.target_mod.lower()
+        for name, entry in bos_silo.items():
+            if name.lower() == target_lower:
+                continue
+            sigs = getattr(entry, 'signatures', set())
+            match = sigs.intersection(check_sigs)
+            # Debug: why did this mod get drafted?
+            self.log_debug(f"POOL_DRAFT: {name} sigs={sigs} check={check_sigs} match={bool(match)}")
+            if match:
+                lo_idx = getattr(entry, 'lo_index', 9999)
+                candidates.append((name, lo_idx))
+        
+        candidates.sort(key=lambda x: x[1])
+        self._pool_sources = [name for name, _ in candidates]
+        
+        if self._pool_sources:
+            self.source_combo.setEditText(f"Auto: {len(self._pool_sources)} mods")
+            # Tooltip caps at 30 so we don't paint a novel on hover
+            tip_lines = self._pool_sources[:30]
+            tail = f"\n... and {len(self._pool_sources) - 30} more" if len(self._pool_sources) > 30 else ""
+            self.source_combo.setToolTip(
+                f"Drafted for {category}:\n" + "\n".join(tip_lines) + tail
+            )
+        else:
+            self.source_combo.setEditText("Auto: nobody")
+            self.source_combo.setToolTip(f"Zero mods with {category} records — category's a ghost town")
 
     def _request_stop(self) -> None:
         self._abort_scan = True
@@ -590,7 +692,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self._clear_fid_rows()
         self._update_button_state()
         self._emit_rows()
-        self._mode_lbl.setText("Manual mode (0 rows)")
+        self._mode_lbl.setText("Manual")
 
     def _on_add_clicked(self) -> None:
         """Add empty row for manual entry."""
@@ -686,8 +788,12 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         
         # M2M MODE: Target + Source + Category all required
         has_target = bool(self.target_mod.strip())
-        has_source = bool(self.source_mod.strip())
-        has_category = bool(self._m2m_cat_combo.currentText().strip())  # "All" is valid, empty is not
+        has_category = bool(self._m2m_cat_combo.currentText().strip())
+        
+        if self.pool_mode_cb.isChecked():
+            has_source = len(self._pool_sources) > 0
+        else:
+            has_source = bool(self.source_mod.strip())
         
         return has_target and has_source and has_category
 
@@ -695,7 +801,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
     # ---------- Plugin Collection ----------
     def _collect_plugin_files(self) -> tuple[list[Path], list[str], dict[int, str]]:
-        """Grab plugins for FID scan — drinks from BOS_MODS silo like OR does."""
+        """Grab plugins for FID scan — drinks from BOS_PLUGINS silo like OR does."""
         plugin_files: list[Path] = []
         mod_names: list[str] = []
         lo_map: dict[int, str] = {}
@@ -713,17 +819,13 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         if self.scan_all_cb.isChecked():
             all_silos = self._md.controller._rich_silos
             
-            # Controller stores BOS data under BOS_MODS — keys are mod folders, not plugins
             rich_bos = {}
             if all_silos and hasattr(all_silos, 'get'):
                 rich_bos = (
-                    all_silos.get("BOS_MODS") or 
-                    all_silos.get("BOS_MOD") or 
-                    all_silos.get("BOS", {})
+                        all_silos.get("BOS_PLUGINS", {})
                 )
             
             if not rich_bos:
-                self.log_debug("FID: BOS_MODS silo empty — nothing to scan")
                 return [], [], {}
             
             # Need the real load order to know where each plugin actually sits
@@ -770,6 +872,13 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
     def _find_plugins_in_mod(self, mod_identifier: str) -> list[Path]:
         """Hunt for plugins - accepts mod name OR plugin name."""
+        # Blessed fast lane — these live in game data, no hunting needed
+        # MUST come before the .esm fast path or it's dead code
+        if mod_identifier in BLESSED_CORE_FILES:
+            game_path = self._md.organizer_wrapper.game_data_path / mod_identifier
+            if game_path.is_file():
+                return [game_path]
+        
         # Fast path: passed a plugin filename directly
         if mod_identifier.lower().endswith(('.esp', '.esm', '.esl')):
             plugin_path = self._md.organizer_wrapper.get_plugin_path(mod_identifier)
@@ -789,7 +898,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             if data_path.exists():
                 for pattern in ["*.esp", "*.esm", "*.esl"]:
                     plugins.extend(data_path.glob(pattern))
-        
+     
         # Path 2: LMW reverse resolve — walk LO, ask get_plugin_path where each plugin lives
         # Catches name mismatches where silo key != disk folder name (cleaned masters, etc.)
         if not plugins:
@@ -820,6 +929,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
     # ---------- Scanning ----------
     def _scan_formids(self) -> None:
         """Scan with activity indicator and logging (from original)."""
+        self._extracted_mode = True
         self._md.controller.activity_indicator_toggle.emit(True)
         self._md.controller._handle_worker_log_line("BOS FormID Scan started", MO2_LOG_INFO)
         self._abort_scan = False
@@ -854,7 +964,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 return
 
             self._populate_scan_results(filtered, lo_map)
-            self._set_extracted_mode(True)
+            self._extracted_mode = True
             self._refresh_scan_btn()
             self._md.controller._update_generate_button()
             self._emit_rows()
@@ -875,7 +985,6 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         if not records:
             return
 
-        bridge = getattr(self._md.controller, '_plugin_to_mod_bridge', {})
         
         self._table.hide()
         self._table.blockSignals(True)
@@ -890,17 +999,9 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 source_plugin = rec.get('plugin_name', 'Unknown')
                 edid = rec.get('EDID', rec.get('editor_id', ''))
                 
-                # --- BRIDGE LOOKUP: plugin -> mod folder ---
-                # Blessed plugins (Data/) map to themselves via bridge
-                source_mod = bridge.get(source_plugin, source_plugin)
+                source_mod = source_plugin
                 
                 # --- ASSET SWAP DETECTION ---
-                # Check manifest for body/skin signatures (pluginless mods)
-                is_asset_swap = False
-                manifest = getattr(self._md.controller.profile_manager, '_manifest', {})
-                entry = manifest.get(source_plugin)
-                if entry and ('ASSET_SKIN' in entry.signatures or 'ASSET_BODY' in entry.signatures):
-                    is_asset_swap = True
                     
                 # Target = LO-resolved owner (victim) via prefix math
                 target_plugin = "Skyrim.esm"
@@ -912,9 +1013,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                         lo_index = int(prefix, 16)
                         # LO map gives us plugin name from index
                         target_plugin = lo_map.get(lo_index, "Skyrim.esm")
-                        # Bridge converts plugin to mod folder
                         # Blessed plugins (Skyrim.esm, etc.) stay as plugin names
-                        target_mod = bridge.get(target_plugin, target_plugin)
                     except ValueError:
                         pass
                 
@@ -936,7 +1035,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                 # Tooltip showing the swap
                 tooltip = f"Replaces {short_fid} in {target_mod} with {source_mod}"
                 
-                self._add_fid_row(row_data, checked=True, read_only=True, is_asset_swap=is_asset_swap)
+                self._add_fid_row(row_data, checked=True, read_only=True)
                 
                 # Slap tooltip on row
                 row_idx = self._table.rowCount() - 1
@@ -949,7 +1048,7 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             self._table.show()
         
         actual_rows = self._get_fid_count()
-        self._mode_lbl.setText(f"Scanned mode ({actual_rows} rows)")
+        self._mode_lbl.setText("Scanned")
         self._update_button_state()
         self._emit_rows()
 
@@ -991,17 +1090,21 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
     # ---------- Export ----------
     def _export_formid_list(self) -> None:
-        """Dump checked rows to JSON — reads live table state, not stale shadows."""
+        """Dump checked rows to JSON — lands in output folder if we got one."""
         live_records = self._get_fid_data()
         if not live_records:
             self.log_info("No checked FormIDs to export")
             return
         
+        # KISS: follow the output folder, fallback to plugin data dir
+        out = self.output_folder.strip()
+        json_path = Path(out) / "BOS_FormIDs.json" if out else self._json_path
+        
         # Mute the watcher so we don't trigger a reload loop on our own write
-        self._watcher.removePath(str(self._json_path))
+        if self._json_path and self._json_path.exists():
+            self._watcher.removePath(str(self._json_path))
         
         try:
-            # Build export payload from live data — includes targets for round-trip
             records = []
             for d in live_records:
                 records.append({
@@ -1011,20 +1114,24 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
                     "target_mod": d.get("target_mod", ""),
                     "target_fid": d.get("target_fid", ""),
                     "category": self._cat_combo.currentText(),
-                    "is_asset_swap": d.get("is_asset_swap", False),
                 })
             
             payload = {"records": records}
-            self._json_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._json_path.open("w", encoding="utf-8") as f:
+            json_path.parent.mkdir(parents=True, exist_ok=True)
+            with json_path.open("w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
-            
-            self.log_info(f"Exported {len(records)} FormIDs to {self._json_path.name}")
+            # shout it into the UI so they know it worked
+            if hasattr(self._md, 'controller') and self._md.controller:
+                self._md.controller._handle_worker_log_line(
+                    f"Exported {len(records)} FormIDs to {json_path}", MO2_LOG_INFO
+                )            
+            self.log_info(f"Exported {len(records)} FormIDs to {json_path.name}")
             
         finally:
-            # Re-arm the watcher
-            if self._json_path.exists():
-                self._watcher.addPath(str(self._json_path))
+            # Re-arm the watcher on the new path
+            if json_path.exists():
+                self._watcher.addPath(str(json_path))
+                self._json_path = json_path
 
     # ---------- Generation ----------
     def _on_generate_clicked(self) -> None:
@@ -1054,10 +1161,10 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         if self.scan_all_cb.isChecked():
             return self._generate_from_scanned(output_folder, log_callback)
         
-        # M2M mode: requires target, source, AND category selected
+        # M2M mode: target + category required. Source is either combo or auto-pool.
         has_target = bool(self.target_mod.strip())
-        has_source = bool(self.source_mod.strip())
         has_category = bool(self._m2m_cat_combo.currentText().strip())
+        has_source = bool(self.source_mod.strip()) or self.pool_mode_cb.isChecked()
         
         if has_target and has_source and has_category:
             return self._generate_mod_to_mod(output_folder, log_callback)
@@ -1074,33 +1181,36 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         if not records:
             return False, "No FormIDs selected"
         
-        # Get LO map and bridge from controller
         lo_map = self._md.controller.profile_manager.get_load_order_map()
-        bridge = getattr(self._md.controller, '_plugin_to_mod_bridge', {})
+        # PM hands back string keys — don't let that silently break prefix math
+        lo_map_norm = {}
+        for k, v in lo_map.items():
+            try:
+                lo_map_norm[int(k)] = v
+            except (ValueError, TypeError):
+                lo_map_norm[k] = v
         
         writer_records = []
         for d in records:
             form_id = d.get("form_id", "")
-            source_mod = d.get("source_mod", "Unknown")  # Already bridged in populate           
+            source_mod = d.get("source_mod", "Unknown")
             clean_fid = form_id.replace("0x", "").replace("0X", "")
             if len(clean_fid) >= 6:
                 prefix = clean_fid[:2]
                 try:
                     lo_index = int(prefix, 16)
-                    # LO map gives plugin name from index
-                    target_plugin = lo_map.get(lo_index, "Skyrim.esm")
-                    # Bridge gives mod folder, blessed plugins (Data/) map to themselves
-                    target_mod = bridge.get(target_plugin, target_plugin)
+                    target_plugin = lo_map_norm.get(lo_index, "Skyrim.esm")
                 except ValueError:
-                    target_mod = "Skyrim.esm"
+                    target_plugin = "Skyrim.esm"
             else:
-                target_mod = "Skyrim.esm"
+                target_plugin = "Skyrim.esm"
+            
+            target_mod = target_plugin
             
             writer_records.append({
                 "formId": form_id,
                 "plugin_name": source_mod,  # Mod folder or plugin name
                 "target_plugin": target_mod,  # Mod folder or blessed plugin name
-                "is_asset_swap": d.get("is_asset_swap", False),
             })
         
         out_file = output_folder / "BOS_Swap.ini"
@@ -1117,80 +1227,152 @@ class BosPanel(QWidget, LoggingMixin, PanelGeometryMixin):
 
     def _generate_mod_to_mod(self, output_folder: Path, log_callback) -> tuple[bool, str]:
         """Generate BOS M2M swap: Source mod objects → Target mod victims."""
-        if not self.target_mod or not self.source_mod:
-            return False, "Target and Source mods required"
+        if not self.target_mod:
+            return False, "Target mod required"
         
-        # --- MIRROR KILLER AT GENERATION ---
-        if self.source_mod.lower() == self.target_mod.lower():
-            return False, "Source and Target are the same mod (no swap needed)"
-        
-        log_callback(f"BOS M2M: {self.source_mod} → {self.target_mod}", MO2_LOG_INFO)
-        
-        # Get category and chance from M2M UI
         category = self._m2m_cat_combo.currentText()
         chance = self._m2m_chance_spin.value()
-        log_callback(f"BOS M2M: {self.source_mod} → {self.target_mod} | cat={category} | chance={chance}%", MO2_LOG_INFO)
         
-        # Find plugins in source mod folder — pluginless mods return empty here
-        source_plugins = self._find_plugins_in_mod(self.source_mod)
-        
-        # Pluginless check — asset-only mods have no plugins but are valid sources
-        pluginless = getattr(self._md.controller, '_rich_silos', {}).get("BOS_MOD", {})
-        is_pluginless = self.source_mod in pluginless
-        
-        if not source_plugins and not is_pluginless:
-            return False, f"No plugins found in source mod: {self.source_mod}"
-        
-        if is_pluginless:
-            log_callback(f"BOS M2M: {self.source_mod} is pluginless — asset swap mode", MO2_LOG_INFO)
-        
-        log_callback(f"BOS M2M: Found {len(source_plugins)} plugins in {self.source_mod}", MO2_LOG_DEBUG)
+        # --- MIRROR KILLER ---
+        if not self.pool_mode_cb.isChecked():
+            if not self.source_mod:
+                return False, "Source mod required"
+            if self.source_mod.lower() == self.target_mod.lower():
+                return False, "Source and Target are the same mod (no swap needed)"
         
         # Get active plugins for reader context
         audit = self._md.controller.profile_manager.get_audit_cache()
         active_plugins = list(audit.keys())
         
-        # Scan with M2M logic — processor handles pluginless internally now
-        log_callback(f"BOS M2M: Scanning for {category} records...", MO2_LOG_INFO)
-        m2m_records = self._processor.scan_m2m(
-            source_plugins=source_plugins,
-            source_mod_name=self.source_mod,
-            target_mod_name=self.target_mod,
-            category=category,
-            abort_flag=self,
-            progress_callback=lambda current, total, msg: log_callback(
-                f"BOS M2M scan: {current}/{total} — {msg}", MO2_LOG_DEBUG
-            ),
-            active_plugins=active_plugins
-        )
+        # Resolve target plugins
+        target_plugins = self._find_plugins_in_mod(self.target_mod)
+        if not target_plugins:
+            return False, f"No plugins found for target: {self.target_mod}"
         
-        if not m2m_records:
-            return False, f"No {category} records found for M2M pairing"
+        # Get active plugins for reader context
+        audit = self._md.controller.profile_manager.get_audit_cache()
+        active_plugins = list(audit.keys())
         
-        log_callback(f"BOS M2M: Paired {len(m2m_records)} records", MO2_LOG_INFO)
-        for rec in m2m_records[:5]:
-            log_callback(f"  → {rec.get('form_id','?')} | {rec.get('edid','')}", MO2_LOG_DEBUG)
+        # Scan target for victims
+        log_callback(f"BOS M2M: Scanning target {self.target_mod} for {category} records...", MO2_LOG_INFO)
+        target_records = []
+        for tp in target_plugins:
+            recs = self._processor.scan_plugins([tp], [self.target_mod], category, active_plugins=active_plugins)
+            target_records.extend(recs)
         
-        # Build writer records...
+        if not target_records:
+            return False, f"No {category} records found in target mod"
+        
+        log_callback(f"BOS M2M: {len(target_records)} victim records", MO2_LOG_INFO)
+        
+        # --- POOL MODE ---
+        if self.pool_mode_cb.isChecked():
+            pool_mods = self._pool_sources
+            if not pool_mods:
+                return False, "No auto-drafted pool mods — category might be empty"
+            
+            log_callback(f"BOS POOL: Harvesting from {len(pool_mods)} auto-drafted mods", MO2_LOG_INFO)
+            
+            all_source_records = []
+            for pool_mod in pool_mods:
+                pool_plugins = self._find_plugins_in_mod(pool_mod)
+                if not pool_plugins:
+                    continue
+                recs = self._processor.scan_plugins(pool_plugins, [pool_mod]*len(pool_plugins), category, active_plugins=active_plugins)
+                all_source_records.extend(recs)
+            
+            # Deduplicate by FormID — LMW: higher load order wins
+            lo_map = self._md.controller.profile_manager.get_load_order_map()
+            plugin_to_idx = {name.lower(): int(idx) for idx, name in lo_map.items()}
+            
+            deduped = {}
+            for rec in all_source_records:
+                fid = rec.get('form_id', '')
+                if not fid:
+                    continue
+                plugin = rec.get('plugin_name', '')
+                idx = plugin_to_idx.get(plugin.lower(), -1)
+                
+                if fid not in deduped:
+                    deduped[fid] = (rec, idx)
+                else:
+                    _, existing_idx = deduped[fid]
+                    if idx > existing_idx:
+                        deduped[fid] = (rec, idx)
+            
+            source_records = [r for r, _ in deduped.values()]
+            random.shuffle(source_records)
+            
+            if len(source_records) < 50:
+                log_callback(f"BOS POOL: WARNING — only {len(source_records)} unique records in pool (min 50 recommended)", MO2_LOG_WARNING)
+            
+            m2m_records = []
+            for i, target_rec in enumerate(target_records):
+                source_rec = source_records[i % len(source_records)]
+                m2m_records.append({
+                    "form_id": source_rec["form_id"],
+                    "target_form_id": target_rec["form_id"],
+                    "signature": source_rec.get("signature", ""),
+                    "editor_id": source_rec.get("editor_id", ""),
+                    "name": source_rec.get("name", ""),
+                    "plugin_name": source_rec.get("plugin_name", "Unknown"),
+                    "target_plugin": target_rec.get("plugin_name", self.target_mod),
+                    "target_plugin_file": target_rec.get("plugin_name", self.target_mod),
+                    "mod_name": "POOL",
+                })
+            
+            log_callback(f"BOS POOL: Paired {len(m2m_records)} records from {len(source_records)} unique pool records", MO2_LOG_INFO)
+            
+        # --- SINGLE SOURCE MODE ---
+        else:
+            log_callback(f"BOS M2M: {self.source_mod} → {self.target_mod} | cat={category} | chance={chance}%", MO2_LOG_INFO)
+            
+            source_plugins = self._find_plugins_in_mod(self.source_mod)
+            
+            if not source_plugins:
+                return False, f"No plugins found in source mod: {self.source_mod}"
+            
+            log_callback(f"BOS M2M: Found {len(source_plugins)} plugins in {self.source_mod}", MO2_LOG_DEBUG)
+            
+            log_callback(f"BOS M2M: Scanning for {category} records...", MO2_LOG_INFO)
+            m2m_records = self._processor.scan_m2m(
+                source_plugins=source_plugins,
+                source_mod_name=self.source_mod,
+                target_mod_name=self.target_mod,
+                category=category,
+                abort_flag=self,
+                progress_callback=lambda current, total, msg: log_callback(
+                    f"BOS M2M scan: {current}/{total} — {msg}", MO2_LOG_DEBUG
+                ),
+                active_plugins=active_plugins,
+            )
+            if not m2m_records:
+                log_callback(f"BOS M2M: ZERO records for {self.source_mod} → {self.target_mod} (cat={category})", MO2_LOG_WARNING)
+                return False, f"No {category} records found for M2M pairing"
+            
+            log_callback(f"BOS M2M: Paired {len(m2m_records)} records", MO2_LOG_INFO)
+        
+        # Build writer records (shared by both paths)
         writer_records = []
         for rec in m2m_records:
             writer_records.append({
                 "formId": rec["form_id"],                    
                 "target_form_id": rec["target_form_id"],     
-                "plugin_name": self.source_mod if is_pluginless else rec["plugin_name"],           
+                "plugin_name": rec["plugin_name"],           
                 "target_plugin": rec["target_plugin_file"], 
-                "is_asset_swap": is_pluginless or rec.get("is_asset_swap", False),
                 "chance_percent": chance,
             })
         
-        # ... filename building ...
         def safe_name(name):
             cleaned = "".join(c if c.isalnum() else "_" for c in name).strip("_")
             return cleaned[:25]
         
         safe_target = safe_name(self.target_mod)
-        safe_source = safe_name(self.source_mod)
-        out_file = output_folder / f"BOS_{safe_target}_to_{safe_source}_SWAP.ini"
+        if self.pool_mode_cb.isChecked():
+            out_file = output_folder / f"BOS_{safe_target}_POOL_SWAP.ini"
+        else:
+            safe_source = safe_name(self.source_mod)
+            out_file = output_folder / f"BOS_{safe_target}_to_{safe_source}_SWAP.ini"
         
         log_callback(f"BOS M2M: Writing {len(writer_records)} swaps to {out_file.name}", MO2_LOG_INFO)
         

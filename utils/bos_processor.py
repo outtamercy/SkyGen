@@ -41,13 +41,7 @@ class BosProcessor(LoggingMixin):
             if rp and rp.exists():
                 resolved_sources.append(rp)
         
-        # --- PLUGINLESS ASSET DETECTION ---
-        # If no plugins resolved but category is asset-based, bail to asset scanner
-        is_asset_category = category in ("ASSET_SKIN", "ASSET_BODY", "Skin", "Body")
-        
-        if not resolved_sources and is_asset_category:
-            self.log_info(f"ASSET_MODE: Pluginless source for {category}", MO2_LOG_INFO)
-            return self._scan_asset_swap(target_mod_name, source_mod_name, category, active_plugins)
+        self.log_info(f"M2M_SCAN: cat={category}, sources={len(resolved_sources)}")
         
         if not resolved_sources:
             return []
@@ -180,110 +174,8 @@ class BosProcessor(LoggingMixin):
             except Exception:
                 continue
         
-        # --- ASSET-SWAP FALLBACK ---
-        # If we have source plugins but 0 records (texture replacers), 
-        # fall back to path-based asset swap using target FormIDs
-        if resolved_sources and total_source_records == 0 and target_records:
-            self.log_info(f"ASSET_FALLBACK: {len(resolved_sources)} plugins, 0 records - using asset swap", MO2_LOG_INFO)
-            for target_rec in target_records[:50]:  # Cap at 50 to avoid spam
-                m2m_records.append({
-                    "form_id": target_rec["form_id"],  # Use target FID as anchor
-                    "target_form_id": target_rec["form_id"],
-                    "signature": "ASSET",  # Marker for asset swap
-                    "editor_id": "AssetSwap",
-                    "name": "Asset Replacement",
-                    "plugin_name": source_mod_name,  # <-- FIX: Actually the source mod, not victim
-                    "target_plugin": target_mod_name,
-                    "target_plugin_file": target_rec["plugin_name"],
-                    "mod_name": "ASSET_SWAP",
-                    "is_asset_swap": True,
-                })
-        
+        self.log_info(f"M2M_SCAN: Returning {len(m2m_records)} records")
         return m2m_records
-
-    def _scan_asset_swap(self, target_mod_name: str, source_mod_name: str,
-                         category: str, active_plugins: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """Handle pluginless body mods — scan target for FormIDs, tag source correctly."""
-        target_plugins = []
-        try:
-            mod_obj = self.organizer_wrapper.organizer.modList().getMod(target_mod_name)
-            if mod_obj:
-                mod_path = Path(mod_obj.absolutePath())
-                if mod_path.is_dir():
-                    for pattern in ["*.esp", "*.esm", "*.esl"]:
-                        target_plugins.extend(list(mod_path.glob(pattern)))
-                        target_plugins.extend(list(mod_path.glob(f"Data/{pattern}")))
-        except Exception:
-            pass
-        
-        # Fallback to direct path for blessed files
-        if not target_plugins:
-            target_path = self.organizer_wrapper.get_plugin_path(target_mod_name)
-            if target_path and Path(target_path).exists():
-                target_plugins = [Path(target_path)]
-        
-        # Nuclear fallback: target mod has no plugins of its own.
-        # Victim records are scattered across the whole load order.
-        if not target_plugins and active_plugins:
-            self.log_info(
-                f"ASSET_FALLBACK: {target_mod_name} dry — scanning {len(active_plugins)} active plugins",
-                MO2_LOG_INFO
-            )
-            seen_paths: set[Path] = set()
-            for plugin_name in active_plugins:
-                plugin_path = self.organizer_wrapper.get_plugin_path(plugin_name)
-                if plugin_path:
-                    p = Path(plugin_path).resolve()
-                    if p not in seen_paths:
-                        seen_paths.add(p)
-                        target_plugins.append(p)
-        
-        if not target_plugins:
-            return []
-        
-        reader = PluginReader(self.organizer_wrapper, active_plugins=active_plugins)
-        asset_records = []
-        
-        # User picked "Body" or "Skin" in the M2M combo — map it to real signatures
-        wanted_sigs = BOS_CATEGORIES.get(category, BOS_SIGNATURES)
-        
-        for plugin_path in target_plugins:
-            try:
-                seen_fids: set[str] = set()
-                for rec in iter_records(plugin_path, reader=reader):
-                    sig = rec.get("signature", "")
-                    if sig in wanted_sigs:
-                        form_id = rec.get("form_id", "")
-                        
-                        # Asset swap: user picked the category, we trust it.
-                        # No body-part guessing — vanilla EIDs don't have those keywords.
-                        if form_id and form_id not in seen_fids:
-                            seen_fids.add(form_id)
-                            # plugin_name = source mod (the pluginless asset provider)
-                            # target_plugin = the victim plugin file
-                            asset_records.append({
-                                "form_id": form_id,
-                                "target_form_id": form_id,
-                                "signature": sig,
-                                "editor_id": rec.get("editor_id", ""),
-                                "name": rec.get("name", ""),
-                                "plugin_name": source_mod_name,
-                                "target_plugin": plugin_path.name,
-                                "target_plugin_file": plugin_path.name,
-                                "mod_name": "ASSET_SWAP",
-                                "is_asset_swap": True,
-                            })
-                
-                # Per-plugin heartbeat so user knows we ain't frozen
-                self.log_info(
-                    f"Asset scan: {plugin_path.name} — {len(asset_records)} hits so far",
-                    MO2_LOG_DEBUG
-                )
-            except Exception:
-                continue
-        
-        self.log_info(f"ASSET_MODE: Found {len(asset_records)} records total", MO2_LOG_INFO)
-        return asset_records
 
     def scan_plugins(
         self, 
@@ -296,10 +188,6 @@ class BosProcessor(LoggingMixin):
     ) -> List[Dict[str, Any]]:
         """Scan plugins for BOS records. Returns filtered list."""
         
-        # Handle pluginless asset mods in scan mode too
-        if category in ("ASSET_SKIN", "ASSET_BODY", "Skin") and not plugin_files:
-            self.log_info("ASSET_MODE: No plugins to scan, use M2M mode for asset swaps", MO2_LOG_INFO)
-            return []
         self.log_info(f"BOS Processor: scanning {len(plugin_files)} plugins", MO2_LOG_INFO)
         
         wanted_sigs = BOS_SIGNATURES if category == "All" else BOS_CATEGORIES.get(category, BOS_SIGNATURES)

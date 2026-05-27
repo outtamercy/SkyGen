@@ -98,6 +98,7 @@ class PatchAndConfigGenerationManager(LoggingMixin):
             has_sentence_builder = bool(sb_filter and sb_action and sb_value)
 
             records_by_pair: Dict[Tuple[str, str], Tuple[str, List[str]]] = {}
+            records_by_category: Dict[str, Dict[Tuple[str, str], Tuple[str, List[str]]]] = {}
             
             for form_id_snake, target_rec in all_exported_target_bases_by_formid.items():
                 sig = target_rec.get("signature", "UNKNOWN")
@@ -158,17 +159,30 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 else:
                     continue
 
-                key = (origin_plugin, file_name)
-                if key not in records_by_pair:
-                    records_by_pair[key] = (master_plugin, [])
-                records_by_pair[key][1].extend(lines)
+                if generate_all_categories:
+                    cat = sig.upper()
+                    if cat not in records_by_category:
+                        records_by_category[cat] = {}
+                    cat_dict = records_by_category[cat]
+                    key = (origin_plugin, file_name)
+                    if key not in cat_dict:
+                        cat_dict[key] = (master_plugin, [])
+                    cat_dict[key][1].extend(lines)
+                else:
+                    key = (origin_plugin, file_name)
+                    if key not in records_by_pair:
+                        records_by_pair[key] = (master_plugin, [])
+                    records_by_pair[key][1].extend(lines)
 
             # quick peek — what cats actually survived the trip to the writer
             seen_cats = sorted({rec.get("signature", "UNKN") for rec in all_exported_target_bases_by_formid.values()})
             worker.log_info(f"PG Cat Gen input categories: {seen_cats}")
 
-            folder_name = "All" if generate_all_categories else (category.strip('_ ') if category else "All")
-            skypatcher_dir = output_folder_path / "SKSE" / "Plugins" / "SkyPatcher" / folder_name
+            if generate_all_categories:
+                skypatcher_dir = output_folder_path / "SKSE" / "Plugins" / "SkyPatcher"
+            else:
+                folder_name = category.strip('_ ') if category else "All"
+                skypatcher_dir = output_folder_path / "SKSE" / "Plugins" / "SkyPatcher" / folder_name
             skypatcher_dir.mkdir(parents=True, exist_ok=True)
 
             is_mass_gen = generate_all_categories or generate_modlist
@@ -212,33 +226,54 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 worker.log_info(f"Single-mode INI forged: {out_file.name}")
                 return True
             
-            for (origin_plugin, file_name), (master_plugin, lines) in records_by_pair.items():
-                header = [
-                    SKYPATCHER_INI_HEADER,
-                    f"; Terrigenesis is live",
-                    f"; Target: {target_mod_plugin_name}",
-                    f"; Source: {source_mod_plugin_name or 'None'}",
-                    f"; Master: {master_plugin}",
-                    f"; Origin: {origin_plugin}",
-                    ";",
-                    "",
-                ]
-
-                content = "\n".join(header + lines)
-                
-                # Look up real index by plugin name, not FormID prefix.
-                # ESLs get FE prefix; everything else gets 02X.
-                idx = plugin_to_idx.get(origin_plugin, 999)
-                if origin_plugin.lower().endswith('.esl'):
-                    filename = f"FE{idx:03X}-{origin_plugin}.ini"
-                else:
-                    filename = f"{idx:02X}-{origin_plugin}.ini"
-                    
-                out_file = skypatcher_dir / filename
-                self.file_ops.save_text_file(out_file, content)
-                worker.log_info(f"Hammered out: {filename}")
-                
-            worker.log_info(f"Forge complete. Total INIs: {len(records_by_pair)}")
+            if generate_all_categories:
+                for cat, cat_records in records_by_category.items():
+                    cat_dir = skypatcher_dir / cat
+                    cat_dir.mkdir(parents=True, exist_ok=True)
+                    for (origin_plugin, file_name), (master_plugin, lines) in cat_records.items():
+                        header = [
+                            SKYPATCHER_INI_HEADER,
+                            f"; Terrigenesis is live",
+                            f"; Category: {cat}",
+                            f"; Target: {target_mod_plugin_name}",
+                            f"; Source: {source_mod_plugin_name or 'None'}",
+                            f"; Master: {master_plugin}",
+                            f"; Origin: {origin_plugin}",
+                            ";",
+                            "",
+                        ]
+                        content = "\n".join(header + lines)
+                        idx = plugin_to_idx.get(origin_plugin, 999)
+                        if origin_plugin.lower().endswith('.esl'):
+                            filename = f"FE{idx:03X}-{origin_plugin}.ini"
+                        else:
+                            filename = f"{idx:02X}-{origin_plugin}.ini"
+                        out_file = cat_dir / filename
+                        self.file_ops.save_text_file(out_file, content)
+                        worker.log_info(f"Hammered out: {cat}/{filename}")
+                worker.log_info(f"Forge complete. Total INIs: {sum(len(v) for v in records_by_category.values())}")
+            else:
+                for (origin_plugin, file_name), (master_plugin, lines) in records_by_pair.items():
+                    header = [
+                        SKYPATCHER_INI_HEADER,
+                        f"; Terrigenesis is live",
+                        f"; Target: {target_mod_plugin_name}",
+                        f"; Source: {source_mod_plugin_name or 'None'}",
+                        f"; Master: {master_plugin}",
+                        f"; Origin: {origin_plugin}",
+                        ";",
+                        "",
+                    ]
+                    content = "\n".join(header + lines)
+                    idx = plugin_to_idx.get(origin_plugin, 999)
+                    if origin_plugin.lower().endswith('.esl'):
+                        filename = f"FE{idx:03X}-{origin_plugin}.ini"
+                    else:
+                        filename = f"{idx:02X}-{origin_plugin}.ini"
+                    out_file = skypatcher_dir / filename
+                    self.file_ops.save_text_file(out_file, content)
+                    worker.log_info(f"Hammered out: {filename}")
+                worker.log_info(f"Forge complete. Total INIs: {len(records_by_pair)}")
             return True
 
         except Exception as exc:

@@ -60,7 +60,8 @@ class PatchSettings(BaseConfig):
         self.bos_xyz: str = "0.0,0.0,0.0"
         self.bos_target_mod: str = "" 
         self.bos_source_mod: str = "" 
-        self.bos_scan_all: bool = False       
+        self.bos_scan_all: bool = False 
+        self.bos_pool_mode: bool = False        
         self.enable_scan: bool = True
         
         # M2M (Mod-to-Mod) configuration - Section 1 state when NOT in scan mode
@@ -129,7 +130,6 @@ class ConfigManager(LoggingMixin):
         ac.remember_splitter_state  = app.get("remember_splitter_state", str(True)).lower() == 'true'
         ac.selected_theme           = app.get("selected_theme", ac.selected_theme)
         ac.dev_settings_hidden      = app.get("dev_settings_hidden", str(ac.dev_settings_hidden)).lower() == 'true'
-        ac.dev_settings_hidden      = app.get("dev_settings_hidden", str(ac.dev_settings_hidden)).lower() == 'true'
         ac.loom_enabled = app.get("loom_enabled", str(ac.loom_enabled)).lower() == 'true'
 
         # Load welcome seal state (defaults to False/empty if missing)
@@ -166,10 +166,11 @@ class ConfigManager(LoggingMixin):
         ps.bos_target_mod        = patch.get("bos_target_mod", ps.bos_target_mod)        
         ps.bos_source_mod        = patch.get("bos_source_mod", ps.bos_source_mod)
         ps.bos_scan_all          = patch.get("bos_scan_all", str(ps.bos_scan_all)).lower() == 'true'
+        ps.bos_pool_mode         = patch.get("bos_pool_mode", "false").lower() == "true"
 
         # M2M
         ps.enable_scan = patch.get("enable_scan", "true").lower() == "true"
-        
+
         # Load M2M settings with defaults
         ps.m2m_category = patch.get("m2m_category", ps.m2m_category)
         ps.m2m_chance = int(patch.get("m2m_chance", str(ps.m2m_chance)))
@@ -245,5 +246,5 @@ class ConfigManager(LoggingMixin):
     # public flush helper
     # --------------------------------------------------
     def flush_config(self) -> None:
-        """Trigger single debounced flush on close."""
-        self._write_ini()
+        """Hammer config to disk right now — no timer games."""
+        self._do_write_ini()

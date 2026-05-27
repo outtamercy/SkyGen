@@ -159,9 +159,6 @@ class SkyGenUIController(QObject):
         self.profile_manager = None
         self._pm_ready = False
 
-        # Bridge map: plugin_name -> mod_folder (for T&S resolution)
-        self._plugin_to_mod_bridge: Dict[str, str] = {}
-
         self.threadpool = QThreadPool.globalInstance()
         self.threadpool.setMaxThreadCount(1)
 
@@ -217,7 +214,6 @@ class SkyGenUIController(QObject):
         self._rich_silos: Dict[str, Dict[str, ManifestEntry]] = {
             "GLOBAL": {},
             "SP": {}, 
-            "BOS_MODS": {}, 
             "BOS_PLUGINS": {},
         }
 
@@ -225,15 +221,15 @@ class SkyGenUIController(QObject):
         current_sig = self.profile_manager._get_loadorder_signature()
         if self.profile_manager._is_silo_cache_valid(current_sig):
             self._handle_worker_log_line("Cache hit – loading silos from disk, skipping scan", MO2_LOG_INFO)
-            # Hydrate PM manifest so bridge rebuild has data to chew on
+            # Hydrate manifest for audit/BL even when cache skips full scan
             if not self.profile_manager._manifest and self.profile_manager._manifest_path.exists():
                 self.profile_manager.load_manifest()
             cache = self.profile_manager._load_silo_cache()
             if cache:
                 self._store_silo_data("SP", cache.get("SP", {}))
-                self._store_silo_data("BOS_MODS", cache.get("BOS_MODS", {}))
+                self._store_silo_data("BOS_PLUGINS", cache.get("BOS_PLUGINS", {}))
                 self._on_pm_scan_finished(True)  # Fake the finish to open gates
-                return  # Skip worker creation entirely        
+                return
 
         self._pm_ready = False
         
@@ -268,35 +264,20 @@ class SkyGenUIController(QObject):
         self._active_scan_worker = None
         self._pm_ready = True
         
-        # 1. Bridge first (instant - cached during scan)
-        self._plugin_to_mod_bridge = self.profile_manager.build_plugin_to_mod_bridge()
-        self.log_info(f"Bridge built: {len(self._plugin_to_mod_bridge)} plugins mapped")
-        
-        # ---- PLUGINLESS MOD DETECTION ----
-        # PM only tracks mods with plugins. BOS needs asset-only mods too — 
-        # BodySlide outputs, texture packs, mesh replacers. They never show 
-        # in plugins.txt so Frankie can't see them. We hunt them manually.
-        pluginless = self._detect_pluginless_mods()
-        if pluginless:
-            self._rich_silos["BOS_MOD"] = pluginless
-            self.log_info(f"Pluginless mods detected: {len(pluginless)} folders (BodySlide, textures, etc.)")
-        self.log_info(f"Bridge built: {len(self._plugin_to_mod_bridge)} plugins mapped")
-        
+        self.log_info("PM scan complete — silos ready")
+               
         # 2. Combos second - everything settled before user can enter
         self.one_ring.populate_sp_combos("")
         self.one_ring.populate_bos_combos("")
         if self.sp_panel and self.one_ring:
             self.one_ring.populate_sp_category(self.sp_panel)
         
-        # 3. Gate 2 LAST - only after bridge + combos are ready
+        # 3. Gate 2 LAST - only after combos are ready
         self._handle_worker_log_line("Frankie wrapped - opening Gate 2", MO2_LOG_INFO)
         self.panels_ready.emit()
             
     def _store_silo_data(self, silo_type: str, data: Any) -> None:
         """Store rich silo with duplicate detection."""
-        # Defensive: BOS_PLUGINS silo is retired
-        if silo_type == "BOS_PLUGINS":
-            return
             
         # Prevent duplicate processing (spam filter)
         if silo_type in self._rich_silos:
@@ -321,115 +302,18 @@ class SkyGenUIController(QObject):
         
         self._rich_silos[silo_type] = clean_data
         
-        # Specific logging for BOS_MODS (restored)
-        if silo_type == "BOS_MODS":
-            self.log_info(f"BOS_MODS stored: {len(clean_data)} mod folders ready")
-        else:
-            self.log_info(f"SILO_STORED: {silo_type} with {len(clean_data)} rich entries")
+        self.log_info(f"SILO_STORED: {silo_type} with {len(clean_data)} rich entries")
 
     def _on_guard_scan_start(self):
         """Guard says 'start working' - fire up the PM."""
         self._deferred_pm_init()
-
-    def _detect_pluginless_mods(self) -> Dict[str, Any]:
-        """Hunt mod folders with assets but no plugins — invisible to Frankie.
-        ONLY active mod folders (from modlist.txt) qualify."""
-        from types import SimpleNamespace
-        
-        result: Dict[str, Any] = {}
-        mods_root = self.organizer_wrapper.mods_path
-        
-        if not mods_root or not mods_root.exists():
-            return result
-        
-        # ---- ACTIVE MOD FILTER ----
-        # Same source PM uses for BOS_MODS — keeps silo consistent
-        active_mods: set[str] = set()
-        profile_dir = getattr(self.organizer_wrapper, 'profile_dir', None)
-        if profile_dir:
-            modlist_path = Path(profile_dir) / "modlist.txt"
-            if modlist_path.exists():
-                with open(modlist_path, 'r', encoding='utf-8-sig') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('+'):
-                            name = line[1:].strip()
-                            if name and not name.endswith('_separator'):
-                                active_mods.add(name)
-        
-        # Build exclusion set — anything with a plugin is already handled
-        known = set(self._plugin_to_mod_bridge.values())
-        known.update(self._plugin_to_mod_bridge.keys())
-        known.update(self._rich_silos.get("SP", {}).keys())
-        known.update(self._rich_silos.get("BOS_MODS", {}).keys())
-        
-        for mod_folder in mods_root.iterdir():
-            if not mod_folder.is_dir():
-                continue
-            
-            name = mod_folder.name
-            # Skip inactive — this was the leak
-            if name not in active_mods:
-                continue
-            if name in known:
-                continue
-        
-        for mod_folder in mods_root.iterdir():
-            if not mod_folder.is_dir():
-                continue
-            
-            name = mod_folder.name
-            if name in known:
-                continue
-            
-            # Skip if blacklisted — but _is_blacklisted wants a ManifestEntry, 
-            # not a raw string. Pluginless mods are asset-only so they rarely 
-            # hit the BL anyway, but check the raw name list if we can.
-            if hasattr(self, 'blacklist_mgr') and self.blacklist_mgr:
-                try:
-                    # Some BL versions check by name, some by entry object
-                    raw_list = getattr(self.blacklist_mgr, '_blacklist', set())
-                    if name.lower() in {n.lower() for n in raw_list}:
-                        continue
-                except Exception:
-                    pass  # BL isn't our problem here — don't crash on it
-            
-            # Any plugin file means it's not pluginless
-            has_plugin = (
-                any(mod_folder.glob("*.esp")) or 
-                any(mod_folder.glob("*.esm")) or 
-                any(mod_folder.glob("*.esl"))
-            )
-            if has_plugin:
-                continue
-            
-            # Need actual asset content to be BOS-relevant
-            has_meshes = (mod_folder / "meshes").exists()
-            has_textures = (mod_folder / "textures").exists()
-            if not has_meshes and not has_textures:
-                continue
-            
-            # Tag with BOS signatures so every category filter lets them through
-            sigs = set(BOS_SIGNATURES)
-            
-            # Fake ManifestEntry — OR just needs lo_index and signatures
-            entry = SimpleNamespace(
-                signatures=sigs,
-                lo_index=9999,  # No load order — park at the end
-                is_blessed=False,
-                is_pluginless=True,
-                mod_folder=name
-            )
-            result[name] = entry
-        
-        return result
+       
     # ---------- NEW: Silo Data Routing ----------
     
     silo_data_ready = pyqtSignal(str, object)
 
     # silo_data_ready emits:
     #   ("SP", [plugin_names]) — SkyPatcher filtered plugins
-    #   ("BOS_MODS", [mod_names]) — BOS UI mod list
     #   ("BOS_PLUGINS", [plugin_names]) — BOS scan plugin list
     def rule_the_combos(self, silo_type: str, category: str = "") -> None:
         """Passes to One Ring – central combo coordinator."""
@@ -448,6 +332,7 @@ class SkyGenUIController(QObject):
         if hasattr(self, 'one_ring') and self.one_ring:
             self.one_ring.populate_sp_combos(category)
 
+    def _populate_bos_combos(self, category: str = "") -> None:
         """FORWARDING STUB – Logic moved to One Ring."""
         if hasattr(self, 'one_ring') and self.one_ring:
             self.one_ring.populate_bos_combos(category)

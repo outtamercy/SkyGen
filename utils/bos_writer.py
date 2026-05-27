@@ -1,12 +1,12 @@
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from ..core.constants import BASE_GAME_PLUGINS
+from ..utils.logger import LoggingMixin, MO2_LOG_INFO, MO2_LOG_DEBUG
 
-class BosWriter:
+class BosWriter(LoggingMixin):
     """Writes BOS INI files in pipe-delimited [Forms] format."""
     
-    @staticmethod
-    def write_ini(records: List[Dict[str, Any]], output_path: Path, 
+    def write_ini(self, records: List[Dict[str, Any]], output_path: Path, 
                   mode: str = "scanned", target_mod: str = "",
                   xyz: tuple[str, str, str] = ("0.0", "0.0", "0.0"),
                   chance: int = 100) -> Tuple[bool, str]:
@@ -14,6 +14,7 @@ class BosWriter:
         try:
             lines = ["[Forms]", ""]
             valid_records = 0
+            self.log_debug(f"BOS_WRITER: mode={mode}, records_in={len(records)}, target_mod={target_mod}")
             
             # Parse XYZ
             x, y, z = xyz
@@ -23,9 +24,8 @@ class BosWriter:
                 form_id = rec.get("formId", rec.get("form_id", "")).strip()
                 if not form_id:
                     continue
-                
+
                 target_form_id = rec.get("target_form_id", "").strip()
-                is_asset_swap = rec.get("is_asset_swap", False)
                 
                 # M2M uses different FIDs; Scan/FID uses same FID
                 if mode == "modswap" and target_form_id:
@@ -39,7 +39,6 @@ class BosWriter:
                     swap_fid = short_id
                     raw_target = rec.get("target_plugin") or target_mod
                     target_plugin = (raw_target or "Skyrim.esm").strip()
-                    # For asset swaps, source is the mod folder (not a plugin)
                     raw_source = rec.get("plugin_name", "Unknown")
                     source_plugin = raw_source.strip()
                 
@@ -47,10 +46,10 @@ class BosWriter:
                 orig_part = f"0x{orig_fid}~{target_plugin}"
                 swap_part = f"0x{swap_fid}~{source_plugin}"
                 
-                # BOS parser is picky about pipe count.
-                # 2 segments = orig|swap (chance defaults 100)
-                # 4 segments = orig|swap|props|chance
-                # 3 segments = parser reads chance as a broken property string and drops it silently
+                # Skip self-swaps — replacing something with itself is a waste of ink
+                if orig_part == swap_part:
+                    continue
+                
                 if has_offset:
                     props = f"posR({x},{y},{z})"
                     lines.append(f"{orig_part}|{swap_part}|{props}|{chance}")
@@ -60,6 +59,8 @@ class BosWriter:
                     lines.append(f"{orig_part}|{swap_part}")
                 
                 valid_records += 1
+            
+            self.log_info(f"BOS_WRITER: Wrote {valid_records} valid records out of {len(records)} input")
             
             if valid_records == 0:
                 return False, f"No valid records to write to {output_path.name}"

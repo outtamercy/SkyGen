@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+from collections import Counter
 from pathlib import Path
 from typing import List, Optional, Any
 
-from PyQt6.QtWidgets import QApplication, QWidget  # type: ignore
+from PyQt6.QtWidgets import QApplication, QWidget, QComboBox, QListView, QSplitter, QStackedWidget  # type: ignore
 from PyQt6.QtGui import QColor  # type: ignore
 from PyQt6.QtCore import QDir  # type: ignore
 from ..utils.logger import LoggingMixin
@@ -105,7 +106,7 @@ class ThemeManager(LoggingMixin):
                         if path.startswith(('http://', 'https://', '/', 'data:', 'qrc:')):
                             return match.group(0)
                         abs_path = (base / path).resolve().as_posix()
-                        return f"url('{abs_path}')"
+                        return 'url("{}")'.format((base / path).resolve().as_posix().replace('"', '\\"'))
 
                     qss_text = re.sub(r"""(?i)url\(['"]?([^'")]+)['"]?\)""", _rewrite_urls, qss_text)
                     match = re.search(r'url\([^)]+\)', qss_text)
@@ -126,7 +127,7 @@ class ThemeManager(LoggingMixin):
                         if path.startswith(('http://', 'https://', '/', 'data:', 'qrc:')):
                             return match.group(0)
                         abs_path = (base / path).resolve().as_posix()
-                        return f"url('{abs_path}')"
+                        return 'url("{}")'.format((base / path).resolve().as_posix().replace('"', '\\"'))
 
                     qss_text = re.sub(r"""(?i)url\(['"]?([^'")]+)['"]?\)""", _rewrite_urls, qss_text)
                     match = re.search(r'url\([^)]+\)', qss_text)
@@ -191,21 +192,90 @@ class ThemeManager(LoggingMixin):
 
         return new_qss
 
+    def _extract_color(self, qss: str, prop: str, fallback: str) -> str:
+        found = re.findall(rf'{re.escape(prop)}\s*:\s*([^;]+)', qss, re.IGNORECASE)
+        if found:
+            return Counter(w.strip() for w in found).most_common(1)[0][0]
+        return fallback
+
+    def _popup_palette(self, qss: str) -> dict:
+        bg = self._extract_color(qss, "background-color", "#2a2a2a")
+        fg = self._extract_color(qss, "color", "#e0e0e0")
+        accent = self._extract_color(qss, "selection-background-color", "#d4af37")
+        accent_text = self._extract_color(qss, "selection-color", "#000000")
+        border = self._extract_color(qss, "border-color", "")
+        if not border or border == "transparent":
+            border = accent
+        try:
+            if QColor(bg).isValid() and QColor(bg).lightness() > 160:
+                bg = "#2a2a2a"
+                fg = "#e0e0e0"
+                border = accent = self.accent_color
+                accent_text = "#000000"
+        except Exception:
+            pass
+        return {
+            "bg": bg, "fg": fg, "accent": accent,
+            "accent_text": accent_text, "border": border,
+        }
+
+    def _fix_combo_popups(self, qss: str) -> None:
+        colors = self._popup_palette(qss)
+        for combo in self.target_widget.findChildren(QComboBox):
+            if not hasattr(combo, "_sg_view"):
+                view = QListView(combo)
+                combo.setView(view)
+                combo._sg_view = view
+            css = f"""
+            QListView {{
+                background-color: {colors['bg']};
+                color: {colors['fg']};
+                border: 1px solid {colors['border']};
+                outline: none;
+                padding: 2px;
+            }}
+            QListView::item {{
+                padding: 4px 8px;
+            }}
+            QListView::item:selected {{
+                background-color: {colors['accent']};
+                color: {colors['accent_text']};
+            }}
+            QListView::item:hover {{
+                background-color: {colors['accent']};
+                color: {colors['accent_text']};
+            }}
+            """
+            combo._sg_view.setStyleSheet(css)
+
+    def _punch_holes(self) -> None:
+        hole = """
+        QDialog QSplitter,
+        QDialog QSplitter::handle,
+        QDialog QStackedWidget {
+            background-color: transparent;
+        }
+        """
+        sheet = self.target_widget.styleSheet() or ''
+        if "background-color: transparent" not in sheet:
+            self.target_widget.setStyleSheet(sheet + "\n" + hole)
+
     def apply_theme(self, theme_name: str) -> bool:
-        qss_content = self._get_qss_content(theme_name)
-        if qss_content is None:
+        qss = self._get_qss_content(theme_name)
+        if qss is None:
+            return False
+        try:
+            self.target_widget.setStyleSheet(qss)
+            self._punch_holes()
+            self._fix_combo_popups(qss)
+        except Exception as e:
+            self.log_error(f"apply_theme failed: {e}", exc_info=True)
             return False
 
-        if qss_content:
-            try:
-                self.target_widget.setStyleSheet(qss_content)
-            except Exception as e:
-                self.log_error(f"setStyleSheet failed: {e}", exc_info=True)
-                return False
-
-        app_config = self.config_manager.get_application_config()
-        app_config.selected_theme = theme_name
-        self.log_info(f"Theme '{theme_name}' applied and saved.")
+        cfg = self.config_manager.get_application_config()
+        cfg.selected_theme = theme_name
+        self.config_manager.save_application_config(cfg)
+        self.log_info(f"Theme '{theme_name}' applied.")
         return True
 
     # ------------------------------------------------------------------

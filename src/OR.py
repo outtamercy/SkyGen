@@ -74,7 +74,6 @@ class OneRing(QObject, LoggingMixin):
         # Cache for silo data
         self._cached_silos: Dict[str, Dict[int, str]] = {
             "SP": {},
-            "BOS_MODS": {},
         }
 
     # ============================================================
@@ -383,7 +382,7 @@ class OneRing(QObject, LoggingMixin):
     # ============================================================
     
     def populate_bos_combos(self, category_filter: str = "") -> None:
-        """Fill BOS target/source — plugin names win, folder names for pluginless only."""
+        """Fill BOS target/source — plugin names only."""
         if not self.controller.bos_panel:
             return
         
@@ -394,17 +393,8 @@ class OneRing(QObject, LoggingMixin):
         cat_key = category_filter.strip() if category_filter else ""
         check_sigs = BOS_CATEGORIES.get(cat_key, {cat_key.upper()}) if cat_key and cat_key != "All" else set()
         
-        # ---- Bridge: plugin_name -> mod_folder (invert for folder->plugins) ----
-        folder_to_plugins: Dict[str, List[str]] = {}
-        bridge = getattr(self.controller, '_plugin_to_mod_bridge', {})
-        for plugin_name, folder_name in bridge.items():
-            folder_to_plugins.setdefault(folder_name, []).append(plugin_name)
-        
-        # Case-insensitive lookup dict for BOS plugin silo
         bos_plugins = self.controller._rich_silos.get("BOS_PLUGINS", {})
-        bos_plugins_lower: Dict[str, Any] = {k.lower(): v for k, v in bos_plugins.items()}
         
-        # ---- PATH 1: BOS_PLUGINS silo (plugin names, direct) ----
         for plugin_name, entry in bos_plugins.items():
             if check_sigs:
                 sigs = getattr(entry, 'signatures', set())
@@ -413,41 +403,6 @@ class OneRing(QObject, LoggingMixin):
             merged.append((plugin_name, getattr(entry, 'lo_index', 9999)))
             seen_lower.add(plugin_name.lower())
         
-        # ---- PATH 2: BOS_MODS silo (folder names → plugin names via bridge) ----
-        bos_mods = self.controller._rich_silos.get("BOS_MODS", {})
-        for folder_name, entry in bos_mods.items():
-            if folder_name.lower() in seen_lower:
-                continue
-            
-            plugins = folder_to_plugins.get(folder_name, [])
-            if plugins:
-                for plugin_name in sorted(plugins):
-                    p_lower = plugin_name.lower()
-                    if p_lower not in seen_lower:
-                        lo_idx = getattr(bos_plugins_lower.get(p_lower), 'lo_index', 9999)
-                        merged.append((plugin_name, lo_idx))
-                        seen_lower.add(p_lower)
-            else:
-                if check_sigs:
-                    sigs = getattr(entry, 'signatures', set())
-                    if not sigs.intersection(check_sigs):
-                        continue
-                merged.append((folder_name, getattr(entry, 'lo_index', 9999)))
-                seen_lower.add(folder_name.lower())
-        
-        # ---- PATH 3: BOS_MOD silo (pluginless asset mods, folder names) ----
-        pluginless = self.controller._rich_silos.get("BOS_MOD", {})
-        for folder_name, entry in pluginless.items():
-            if folder_name.lower() in seen_lower:
-                continue
-            if check_sigs:
-                sigs = getattr(entry, 'signatures', set())
-                if not sigs.intersection(check_sigs):
-                    continue
-            merged.append((folder_name, 9999))
-            seen_lower.add(folder_name.lower())
-        
-        # Sort by load order
         merged.sort(key=lambda x: x[1])
         bos_names = [name for name, _ in merged]
         
@@ -481,34 +436,7 @@ class OneRing(QObject, LoggingMixin):
         if not panel:
             return
             
-        # If skin/body category, prioritize asset output folders
-        if category.upper() in {"SKIN", "BODY", "ASSET_BODY", "ASSET_SKIN"}:
-            self._prioritize_asset_outputs(panel, category)
-        else:
-            # Standard population for other categories
-            self.populate_bos_combos(category)
-
-    def _prioritize_asset_outputs(self, panel, category: str) -> None:
-        """Reorder combos to put BodySlide Output at top if present."""
-        # Get current list
-        current_items = [panel.target_combo.itemText(i) 
-                        for i in range(panel.target_combo.count())]
-        
-        # Find BodySlide outputs (whitelist check)
-        asset_outputs = [name for name in current_items 
-                        if "BODYSLIDE" in name.upper() or "BSOUTPUT" in name.upper()]
-        
-        if asset_outputs:
-            # Reorder: Asset outputs first, then rest
-            others = [n for n in current_items if n not in asset_outputs and n != ""]
-            new_order = [""] + asset_outputs + others
-            
-            panel.target_combo.blockSignals(True)
-            panel.target_combo.clear()
-            panel.target_combo.addItems(new_order)
-            panel.target_combo.blockSignals(False)
-            
-            self.log_info(f"Waterfall: Prioritized {len(asset_outputs)} asset outputs")
+        self.populate_bos_combos(category)
 
     def launch_fid_scan(self, processor, plugin_files, mod_names, category, 
                        abort_flag, progress_callback):

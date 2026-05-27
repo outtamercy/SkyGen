@@ -56,7 +56,6 @@ class ProfileManager(QObject, LoggingMixin):
         # Paths resolved by wrapper - no lazy init needed
         self._manifest_path = self.data_dir / f"skygen_manifest_{self.wrapper.profile_name}.ini"
         self._manifest: Dict[str, ManifestEntry] = {}
-        self._plugin_to_mod_bridge: Dict[str, str] = {}
         self._is_scanning = False
         self._refresh_attempted = False
         self.blacklist_mgr: Optional['BlacklistManager'] = None
@@ -142,8 +141,6 @@ class ProfileManager(QObject, LoggingMixin):
             # Cache path leaves manifest empty — hydrate it for audit/BL
             if not self._manifest and self._manifest_path.exists():
                 self.load_manifest()
-                # Cache path skipped _build_manifest_and_emit — bridge never got built
-                self._plugin_to_mod_bridge = self.build_plugin_to_mod_bridge() 
                 
             # Audit cache only if missing — otherwise on-demand when Auditor opens
             if not self._get_audit_cache_path().exists():
@@ -230,7 +227,7 @@ class ProfileManager(QObject, LoggingMixin):
         
         # Cache and emit
         current_sig = self._get_loadorder_signature()
-        self._save_silo_cache(sp_rich, bos_mods_rich, bos_plugins_rich, global_rich, current_sig)
+        self._save_silo_cache(sp_rich, {}, bos_plugins_rich, global_rich, current_sig)
         
         # Emit the rich data - let OR sort by lo_index if it wants order
         self.silo_data_ready.emit("GLOBAL", global_rich)
@@ -257,7 +254,6 @@ class ProfileManager(QObject, LoggingMixin):
         
         # Build fresh manifest from load order
         self._manifest = {}
-        self._plugin_to_mod_bridge: Dict[str, str] = {}  # Cache while paths are hot
         lo_map = self.get_load_order_map()
         
         stats = {"lo_total": len(lo_map), "path_miss": 0, "empty_dna": 0, "success": 0}
@@ -268,13 +264,6 @@ class ProfileManager(QObject, LoggingMixin):
                 stats["path_miss"] += 1
                 continue
             
-            # Build bridge entry while we have the path (zero extra disk hits)
-            path = Path(plugin_path)
-            if path.parent.name.lower() == 'data':
-                self._plugin_to_mod_bridge[plugin_name] = plugin_name
-            else:
-                self._plugin_to_mod_bridge[plugin_name] = path.parent.name
-                        
             # Sniff it
             dna = quick_sniff(str(plugin_path), plugin_path.parent)
             
@@ -454,7 +443,7 @@ class ProfileManager(QObject, LoggingMixin):
         return rich_silo
         
     def _filter_bos_silo(self, all_plugins: List[str]) -> Tuple[Dict[str, ManifestEntry], Dict[str, ManifestEntry]]:
-        """Return rich plugin entries for BOS-eligible mods, plus the mod→plugin mapping."""
+        """Return rich plugin entries for BOS-eligible mods."""
         if not self.blacklist_mgr:
             self.log_warning("BOS_FILTER: BlacklistManager not linked")
             return {}, {}
@@ -475,73 +464,31 @@ class ProfileManager(QObject, LoggingMixin):
                     if mod_name and not mod_name.endswith('_separator'):
                         active_mods.append(mod_name)
         
-        rich_plugins: Dict[str, ManifestEntry] = {}
-        rich_mods: Dict[str, ManifestEntry] = {}
+        rich_plugins: Dict[str, ManifestEntry] = {}        
+        rich_mods: Dict[str, ManifestEntry] = {}  # Kept for backward compat, always empty
         
-        mods_root = getattr(self.wrapper, 'mods_path', None)
-        if not mods_root:
-            return {}, {}
-        
-        for mod_folder in active_mods:
-            # Global blacklist check (Output folders)
-            if any(bl.lower() in mod_folder.lower() for bl in BLACKLIST_KEYWORDS):
+        for plugin_name, entry in self._manifest.items():
+            # GLOBAL plugins stay out of BOS silo unless blessed base game
+            if entry.layer == "global" and not entry.is_blessed:
                 continue
             
-            mod_path = Path(mods_root) / mod_folder
-            found_in_mod = False
-            representative_entry = None
+            # DELEGATE to BlacklistManager
+            if not self.blacklist_mgr or not self.blacklist_mgr.is_eligible_for_silo(entry, plugin_name, 'BOS'):
+                continue
             
-            if mod_path.exists():
-                for plugin_file in list(mod_path.glob("*.esp")) + list(mod_path.glob("*.esm")) + list(mod_path.glob("*.esl")):
-                    plugin_name = plugin_file.name
-                    entry = self._manifest.get(plugin_name)
-                    if not entry:
-                        continue
-                    
-                    # GLOBAL plugins stay out of BOS silo unless blessed base game
-                    if entry.layer == "global" and not entry.is_blessed:
-                        continue
-                    
-                    # DELEGATE to BlacklistManager
-                    if not self.blacklist_mgr or not self.blacklist_mgr.is_eligible_for_silo(entry, plugin_name, 'BOS'):
-                        continue
-                    
-                    # Content check: must have BOS-relevant signatures
-                    if not entry.signatures.intersection({'ARMO', 'ARMA', 'STAT', 'MSTT', 'FURN', 'CONT'}):
-                        continue
-                    
-                    rich_plugins[plugin_name] = entry
-                    found_in_mod = True
-                    if representative_entry is None:
-                        representative_entry = entry
+            # Content check: must have BOS-relevant signatures
+            if not entry.signatures.intersection({'ARMO', 'ARMA', 'STAT', 'MSTT', 'FURN', 'CONT'}):
+                continue
             
-            if found_in_mod and representative_entry:
-                rich_mods[mod_folder] = representative_entry
+            rich_plugins[plugin_name] = entry
         
         # Inject blessed plugins (Data/ folder) - they live outside modlist
         for blessed_name in BLESSED_CORE_FILES:
             entry = self._manifest.get(blessed_name)
             if entry and blessed_name not in rich_plugins:
                 rich_plugins[blessed_name] = entry
-                rich_mods[blessed_name] = entry
         
         return rich_mods, rich_plugins
-
-    def build_plugin_to_mod_bridge(self) -> Dict[str, str]:
-        """Return pre-built bridge from scan. Zero disk hits."""
-        if not self._plugin_to_mod_bridge and self._manifest:
-            # Fallback only if cache missed (shouldn't happen)
-            self.log_debug("Bridge cache empty, rebuilding from manifest")
-            for plugin_name in self._manifest.keys():
-                plugin_path = self.wrapper.get_plugin_path(plugin_name)
-                if plugin_path:
-                    path = Path(plugin_path)
-                    self._plugin_to_mod_bridge[plugin_name] = (
-                        plugin_name if path.parent.name.lower() == 'data' 
-                        else path.parent.name
-                    )
-        self.log_debug(f"Bridge returned: {len(self._plugin_to_mod_bridge)} entries")
-        return self._plugin_to_mod_bridge
 
     def _get_silo_cache_path(self) -> Path:
         """Path to silo cache file."""
@@ -594,11 +541,7 @@ class ProfileManager(QObject, LoggingMixin):
             # Dump SP silo
             for name, entry in sp_entries.items():
                 dump_entry(f"SP:{name}", entry, 'SP')
-            
-            # Dump BOS mods (representative entries)
-            for name, entry in bos_mods.items():
-                dump_entry(f"BOS_MOD:{name}", entry, 'BOS_MOD')
-            
+                        
             # Dump BOS plugins (full entries)
             for name, entry in bos_plugins.items():
                 dump_entry(f"BOS:{name}", entry, 'BOS')
@@ -719,16 +662,6 @@ class ProfileManager(QObject, LoggingMixin):
             stored_logic_ver = config.getint('_meta', 'extraction_logic_version', fallback=1)
             needs_rebuild = (stored_logic_ver < CURRENT_EXTRACTION_LOGIC_VERSION)
 
-            # Load bridge if Frankie cached it during scan
-            if config.has_section('_bridge'):
-                self._plugin_to_mod_bridge = {}
-                for plugin_name in config.options('_bridge'):
-                    self._plugin_to_mod_bridge[plugin_name] = config.get('_bridge', plugin_name)
-                self.log_debug(f"Bridge loaded from manifest: {len(self._plugin_to_mod_bridge)} entries")
-            else:
-                self._plugin_to_mod_bridge = {}
-                self.log_debug("No bridge section in manifest — will rebuild on first use")
-                
             if needs_rebuild:
                 self.log_info(f"Version migration: {stored_logic_ver} -> {CURRENT_EXTRACTION_LOGIC_VERSION}")
             
@@ -1170,11 +1103,6 @@ class ProfileManager(QObject, LoggingMixin):
         for idx, name in sorted(lo_map.items()):
             config.set('_loadorder', str(idx), name)
 
-        # Bridge cache — plugin_name -> mod_folder, built during scan
-        config.add_section('_bridge')
-        for plugin_name, mod_name in self._plugin_to_mod_bridge.items():
-            config.set('_bridge', plugin_name, mod_name)  
-            
         # Plugin sections - EXPLICIT like Frankie
         written = 0
         for plugin_name, entry in self._manifest.items():

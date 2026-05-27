@@ -99,6 +99,60 @@ class OrganizerWrapper(LoggingMixin):
         self._mo2_root = mo2_root
         self._mo2_config = config
         
+        # ---- GLOBAL INSTANCE RESOLUTION ----
+        # Global installs keep instance paths in instances.ini next to ModOrganizer.ini
+        self._instance_path = mo2_root  # default: portable or basePath already correct
+        is_global = mo2_ini_path.parent != mo2_root
+        
+        instances_ini = mo2_ini_path.parent / "instances.ini"
+        if instances_ini.exists() or is_global:
+            instance_name = self._decode_byte_array(
+                config.get('General', 'selected_instance', fallback='')
+            ).strip()
+            
+            if instance_name and instances_ini.exists():
+                inst_config = configparser.ConfigParser()
+                inst_config.read(instances_ini, encoding='utf-8')
+                
+                # Case-insensitive hunt for the instance section
+                found_section = None
+                for section in inst_config.sections():
+                    if section.lower() == instance_name.lower():
+                        found_section = section
+                        break
+                
+                if found_section and 'path' in inst_config[found_section]:
+                    raw_path = self._decode_byte_array(
+                        inst_config.get(found_section, 'path')
+                    )
+                    inst_path = Path(raw_path)
+                    if not inst_path.is_absolute():
+                        inst_path = (mo2_ini_path.parent / raw_path).resolve()
+                    else:
+                        inst_path = inst_path.resolve()
+                    if inst_path.exists():
+                        self._instance_path = inst_path
+                        self.log_info(
+                            f"Global instance '{instance_name}' resolved via instances.ini: {inst_path}"
+                        )
+                    else:
+                        self.log_warning(
+                            f"instances.ini points to missing path: {inst_path}"
+                        )
+                        self._instance_path = mo2_ini_path.parent / instance_name
+                else:
+                    # instances.ini exists but entry missing — old fallback
+                    self._instance_path = mo2_ini_path.parent / instance_name
+            elif instance_name:
+                self._instance_path = mo2_ini_path.parent / instance_name
+            else:
+                self._instance_path = mo2_ini_path.parent
+            
+            is_global = True
+        
+        # For global installs, anchor relative paths to the instance directory
+        path_anchor = self._instance_path if is_global else mo2_root
+        
         # Extract selected_profile from INI (PRIMARY SOURCE)
         try:
             self._profile_name = self._decode_byte_array(
@@ -110,21 +164,8 @@ class OrganizerWrapper(LoggingMixin):
             self.log_warning(f"Could not parse selected_profile: {e}, using Default")
             self._profile_name = 'Default'
         
-        # Set profile directory based on install type (Global vs Portable)
-        if mo2_ini_path.parent != mo2_root:
-            # Global install: Check for instance subdirectory
-            instance_name = self._decode_byte_array(
-                config.get('General', 'selected_instance', fallback='')
-            ).strip()
-            if instance_name:
-                self._profile_dir = mo2_ini_path.parent / instance_name / "profiles" / self._profile_name
-            else:
-                self._profile_dir = mo2_ini_path.parent / "profiles" / self._profile_name
-        else:
-            # Portable install: MO2Root/profiles/
-            self._profile_dir = mo2_root / "profiles" / self._profile_name
-            
-        self.log_debug(f"Profile from INI: '{self._profile_name}', path: {self._profile_dir}")
+        # Profile directory — always anchored to the instance root
+        self._profile_dir = path_anchor / "profiles" / self._profile_name
         
         # Fallback to timestamp detection only if INI profile doesn't exist
         if not self._profile_dir.exists():
@@ -161,7 +202,7 @@ class OrganizerWrapper(LoggingMixin):
         # modsPath can be absolute in shared-modlist setups
         mods_path = Path(mods_path_raw)
         if not mods_path.is_absolute():
-            mods_path = (mo2_root / mods_path_raw).resolve()
+            mods_path = (path_anchor / mods_path_raw).resolve()
         else:
             mods_path = mods_path.resolve()
         self._mods_path = mods_path
@@ -185,7 +226,7 @@ class OrganizerWrapper(LoggingMixin):
             overwrite_raw = 'overwrite'
         overwrite_path = Path(overwrite_raw)
         if not overwrite_path.is_absolute():
-            overwrite_path = (mo2_root / overwrite_raw).resolve()
+            overwrite_path = (path_anchor / overwrite_raw).resolve()
         else:
             overwrite_path = overwrite_path.resolve()
         self._overwrite_path = overwrite_path
@@ -210,7 +251,7 @@ class OrganizerWrapper(LoggingMixin):
 
     def _detect_active_profile_fallback(self) -> None:
         """Fallback: detect active profile via plugins.txt timestamps if INI profile invalid."""
-        profiles_base = self._mo2_root / "profiles"
+        profiles_base = self._instance_path / "profiles"
         most_recent_path: Optional[Path] = None
         latest_mtime = 0.0
         
@@ -275,6 +316,11 @@ class OrganizerWrapper(LoggingMixin):
     def overwrite_path(self) -> Path:
         """MO2 overwrite directory."""
         return self._overwrite_path
+
+    @property
+    def instance_path(self) -> Path:
+        """Resolved MO2 instance directory (same as mo2_root for portable)."""
+        return self._instance_path
 
     # ------------------------------------------------------------------
     # Plugin Path Resolution - 3-Tier LMW (No API calls)
