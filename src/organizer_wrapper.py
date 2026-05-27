@@ -63,24 +63,42 @@ class OrganizerWrapper(LoggingMixin):
         mo2_ini_path = mo2_root / "ModOrganizer.ini"
         
         if not mo2_ini_path.is_file():
-            # Global install: game name from basePath folder (e.g., SkyrimSE)
-            game_name = mo2_root.name
-            candidates = [
-                mo2_root.parent / "MO2" / "ModOrganizer.ini",          # Nolvus
-                mo2_root.parent / "ModOrganizer.ini",                   # flat portable
-                Path.home() / "AppData" / "Local" / "ModOrganizer" / game_name / "ModOrganizer.ini",  # global game-specific
-                Path.home() / "AppData" / "Local" / "ModOrganizer" / "ModOrganizer.ini",              # global flat
-            ]
-            found = None
-            for cand in candidates:
-                if cand.is_file():
-                    found = cand
-                    break
-            if found:
-                mo2_ini_path = found
-                self.log_info(f"MO2 INI found at: {mo2_ini_path}")
-            else:
-                self.log_critical(f"ModOrganizer.ini not found. Tried: {mo2_root}, {candidates}")
+            # Global install: ask instances.ini where the real config lives
+            appdata_mo2 = Path.home() / "AppData" / "Local" / "ModOrganizer"
+            instances_ini = appdata_mo2 / "instances.ini"
+            
+            if instances_ini.is_file():
+                inst_config = configparser.ConfigParser()
+                inst_config.read(instances_ini, encoding='utf-8')
+                if 'General' in inst_config:
+                    instance_name = self._decode_byte_array(
+                        inst_config.get('General', 'selected_instance', fallback='')
+                    ).strip()
+                    if instance_name:
+                        candidate = appdata_mo2 / instance_name / "ModOrganizer.ini"
+                        if candidate.is_file():
+                            mo2_ini_path = candidate
+                            self.log_info(f"Global instance '{instance_name}' resolved via instances.ini: {candidate}")
+            
+            # Still no dice? Scan AppData/ModOrganizer for any instance folder
+            if not mo2_ini_path.is_file() and appdata_mo2.is_dir():
+                for subdir in appdata_mo2.iterdir():
+                    if subdir.is_dir():
+                        candidate = subdir / "ModOrganizer.ini"
+                        if candidate.is_file():
+                            mo2_ini_path = candidate
+                            self.log_info(f"Global instance fallback: {candidate}")
+                            break
+            
+            # Last resort: MO2 parent directory (Nolvus-style flat)
+            if not mo2_ini_path.is_file():
+                candidate = mo2_root.parent / "ModOrganizer.ini"
+                if candidate.is_file():
+                    mo2_ini_path = candidate
+                    self.log_info(f"Global flat fallback: {candidate}")
+            
+            if not mo2_ini_path.is_file():
+                self.log_critical(f"ModOrganizer.ini not found. Tried portable: {mo2_root}, global: {appdata_mo2}")
                 raise RuntimeError("MO2 configuration not found in Portable or Global locations")
 
         # Parse INI first - BEFORE any config access
