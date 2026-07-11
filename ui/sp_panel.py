@@ -78,6 +78,18 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
             row.addWidget(QLabel(lbl))
             row.addWidget(w)
             lay.addLayout(row)
+
+        # Model Change Template Export
+        model_row = QHBoxLayout()
+        self.include_weapons_cb = QCheckBox("Include Weapons")
+        self.include_weapons_cb.setToolTip("Also export WEAP records")
+        self.export_model_btn = QPushButton("Export Model Template")
+        self.export_model_btn.setToolTip("Dump all ARMO/WEAP entries as modelChange templates")
+        model_row.addWidget(self.include_weapons_cb)
+        model_row.addWidget(self.export_model_btn)
+        model_row.addStretch()
+        lay.addLayout(model_row)
+
         # Sentence Builder: Filter | Action | Value
         sentence_layout = QHBoxLayout()
         
@@ -179,6 +191,8 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         self.output_folder_browse_btn.clicked.connect(
             lambda: self._requestBrowse.emit(self.output_folder_input)
         )
+
+        self.export_model_btn.clicked.connect(self._on_export_model_clicked)
         
         # Cat change -> OR handles the heavy lifting
         self.category_combo.currentTextChanged.connect(self._on_category_changed)
@@ -552,7 +566,11 @@ class SkyPatcherPanel(QWidget, LoggingMixin, PanelGeometryMixin):
         
         self.log_info("SP: Delegating to controller.on_generate_sp_patch()")
         self._md.controller.on_generate_sp_patch()
-
+        
+    def _on_export_model_clicked(self) -> None:
+        """Delegate model template export to controller."""
+        include_weapons = self.include_weapons_cb.isChecked()
+        self._md.controller.on_export_model_changes(include_weapons)
 
     def _on_sp_worker_finished(self, success: bool, msg: str) -> None:
         """Handle SP generation completion."""

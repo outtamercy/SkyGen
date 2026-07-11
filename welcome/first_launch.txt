@@ -2,7 +2,7 @@ Welcome to SkyGen® — where xEdit fears to tread.
 
 SkyGen® writes SkyPatcher and BOS INIs for you. Pick your mods, pick a category, hit Generate. No plugin slots burned, no hex math, no manual FormID hunting.
 
-First time? Snoopy's gotta sniff every plugin in your load order to know what's patchable. On a big list like Mayhem's Madness or Mayhem's Truth, that'll take a minute. Don't panic if it looks frozen — it's just crunching numbers so the rest of the UI feels instant.
+First time? Snoopy's gotta sniff every plugin in your load order to know what's patchable. On a big list like Mayhem's Madness AE or VR, that'll take a minute. Don't panic if it looks frozen — it's just crunching numbers so the rest of the UI feels instant.
 
 How to use this thing:
 

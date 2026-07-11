@@ -11,7 +11,8 @@ from ..utils.logger import LoggingMixin, SkyGenLogger
 from ..core.constants import (
     MO2_LOG_CRITICAL, MO2_LOG_ERROR, MO2_LOG_WARNING, MO2_LOG_INFO,
     ERROR_MESSAGES, SUCCESS_MESSAGES,
-    SKYPATCHER_INI_HEADER, SIGNATURE_TO_FILTER, FILTER_TO_ACTIONS, BLESSED_CORE_FILES
+    SKYPATCHER_INI_HEADER, SIGNATURE_TO_FILTER, FILTER_TO_ACTIONS, BLESSED_CORE_FILES, 
+    SKYPATCHER_SUPPORTED_RECORD_TYPES
 )
 from ..src.organizer_wrapper import OrganizerWrapper
 from ..utils.file_ops import FileOperationsManager
@@ -104,6 +105,10 @@ class PatchAndConfigGenerationManager(LoggingMixin):
                 sig = target_rec.get("signature", "UNKNOWN")
                 
                 if not generate_all_categories and category and sig.upper() != category.upper():
+                    continue
+
+                # CAT gen: silently skip unsupported signatures — prevents ARMA/TXST garbage folders
+                if generate_all_categories and sig.upper() not in SKYPATCHER_SUPPORTED_RECORD_TYPES:
                     continue
 
                 origin_plugin = target_rec.get("origin_plugin", target_rec.get("file_name", "Unknown"))
@@ -279,4 +284,97 @@ class PatchAndConfigGenerationManager(LoggingMixin):
         except Exception as exc:
             worker.log_critical(f"Forge exploded: {exc}", exc_info=True)
             return False
+
+    def export_model_changes(
+        self,
+        plugin_names: List[str],
+        output_path: Path,
+        include_weapons: bool = False,
+        worker_callback: Any = None,
+    ) -> bool:
+        """
+        Scan active plugins for ARMO/WEAP records and emit modelChange template INI.
+        Format per Gem spec:
+            ;# EditorID: MyArmor
+            filterByArmor = Plugin.esp|0xLocalFormID: modelChange = 
+        """
+        self.plugin_extractor.active_plugins = plugin_names
+        target_sigs: set[bytes] = {b"ARMO"}
+        if include_weapons:
+            target_sigs.add(b"WEAP")
+
+        # LMW order: reverse so last plugin wins
+        scan_plugins = list(reversed(plugin_names))
+        seen_formids: set[str] = set()
+        lines: List[str] = []
+        total_raw = 0
+
+        for name in scan_plugins:
+            path = self.organizer_wrapper.get_plugin_path(name)
+            if not path:
+                continue
+
+            data = self.plugin_extractor.extract_metadata(
+                path,
+                worker_instance=worker_callback,
+                record_types_bytes=target_sigs,
+            )
+
+            def _flatten(records: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+                flat: Dict[str, Dict[str, Any]] = {}
+                for rec in records:
+                    if rec.get("is_grup"):
+                        flat.update(_flatten(rec.get("children", [])))
+                    else:
+                        fid = rec.get("form_id")
+                        if fid and fid not in seen_formids:
+                            seen_formids.add(fid)
+                            flat[fid] = rec
+                return flat
+
+            records = list(_flatten(data.get("records", [])).values())
+            total_raw += len(records)
+
+            for rec in records:
+                edid = rec.get("EDID", "")
+                if not edid:
+                    continue
+
+                sig = rec.get("signature", "")
+                if sig == "ARMO":
+                    filter_prefix = "filterByArmor"
+                elif sig == "WEAP":
+                    filter_prefix = "filterByWeapon"
+                else:
+                    continue
+
+                raw_form = str(rec.get("form_id", "00000000"))
+                local_id = raw_form[-6:].upper() if len(raw_form) >= 6 else raw_form.zfill(6).upper()
+                origin = rec.get("origin_plugin", "Unknown")
+
+                lines.append(f";# EditorID: {edid}")
+                lines.append(f"{filter_prefix} = {origin}|0x{local_id}: modelChange = ")
+                lines.append("")
+
+        if worker_callback:
+            worker_callback.log_info(
+                f"Model harvest: {total_raw} raw records, {len(lines)//3} template entries"
+            )
+
+        if not lines:
+            if worker_callback:
+                worker_callback.log_warning("No ARMO/WEAP records with EDIDs found")
+            return False
+
+        header = [
+            SKYPATCHER_INI_HEADER,
+            "; Model Change Template Export",
+            f"; Plugins scanned: {len(plugin_names)}",
+            f"; Include Weapons: {include_weapons}",
+            f"; Entries: {len(lines)//3}",
+            "",
+        ]
+
+        self.file_ops.save_text_file(output_path, "\n".join(header + lines))
+        return True
 

@@ -122,8 +122,11 @@ class OrganizerWrapper(LoggingMixin):
         self._instance_path = mo2_root  # default: portable or basePath already correct
         is_global = mo2_ini_path.parent != mo2_root
         
-        instances_ini = mo2_ini_path.parent / "instances.ini"
-        if instances_ini.exists() or is_global:
+        # instances.ini lives in the AppData root, not inside any instance subfolder.
+        # If we look in the wrong place, global instances with a custom 'path' never resolve.
+        appdata_mo2 = Path.home() / "AppData" / "Local" / "ModOrganizer"
+        instances_ini = appdata_mo2 / "instances.ini"
+        if is_global:
             instance_name = self._decode_byte_array(
                 config.get('General', 'selected_instance', fallback='')
             ).strip()
@@ -145,7 +148,8 @@ class OrganizerWrapper(LoggingMixin):
                     )
                     inst_path = Path(raw_path)
                     if not inst_path.is_absolute():
-                        inst_path = (mo2_ini_path.parent / raw_path).resolve()
+                        # paths in instances.ini are relative to AppData root, not instance subfolder
+                        inst_path = (appdata_mo2 / raw_path).resolve()
                     else:
                         inst_path = inst_path.resolve()
                     if inst_path.exists():
@@ -157,12 +161,12 @@ class OrganizerWrapper(LoggingMixin):
                         self.log_warning(
                             f"instances.ini points to missing path: {inst_path}"
                         )
-                        self._instance_path = mo2_ini_path.parent / instance_name
+                        self._instance_path = appdata_mo2 / instance_name
                 else:
-                    # instances.ini exists but entry missing — old fallback
-                    self._instance_path = mo2_ini_path.parent / instance_name
+                    # instances.ini exists but entry missing — fall back to named folder under AppData
+                    self._instance_path = appdata_mo2 / instance_name
             elif instance_name:
-                self._instance_path = mo2_ini_path.parent / instance_name
+                self._instance_path = appdata_mo2 / instance_name
             else:
                 self._instance_path = mo2_ini_path.parent
             
@@ -273,6 +277,22 @@ class OrganizerWrapper(LoggingMixin):
         most_recent_path: Optional[Path] = None
         latest_mtime = 0.0
         
+        # Global instance path wrong? Try the portable layout before dying.
+        if not profiles_base.exists():
+            portable_fallback = self._mo2_root / "profiles"
+            if portable_fallback.exists():
+                profiles_base = portable_fallback
+                self.log_info(
+                    f"Profiles not at instance path — using portable fallback: {portable_fallback}"
+                )
+            else:
+                self.log_critical(
+                    f"Profiles directory missing: {profiles_base} "
+                    f"(also checked {portable_fallback}). "
+                    "Cannot detect active MO2 profile."
+                )
+                raise RuntimeError(f"MO2 profiles directory not found: {profiles_base}")
+
         for profile_folder in profiles_base.iterdir():
             if not profile_folder.is_dir():
                 continue

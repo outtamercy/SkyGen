@@ -4,36 +4,19 @@ If the cache is warm this'll be quick. If not, grab a coffee while Snoopy does h
 
 While you wait, here's what's new since you last saw me:
 
-0.9.1c — "The One Where Video Died"
-
-Welcome screen finally stopped trying to play movies inside MO2. That was a bad idea and it crashed. A lot. Now it shows animated GIFs — little forge scene, spinning coin, whatever. Looks nice, doesn't explode, and your potato CPU won't even notice.
-
-First couple times you open SkyGen you'll still see text (readme, changelog, the usual) because I figure you actually want to know what's new. After that the pretty pictures take over. If you hate fun there's a debug toggle in the code, but you probably don't care.
-
-Don't freak out — the config quietly counts how many times you've opened the panel so it knows when to switch from text to GIFs. It's just a number in your own INI file, not telemetry. Paranoid modders can sleep easy.
-
 0.9.1 — "The Cleanup"
-
-Worker got stripped to a dumb pipe. No more prefix math lies, no origin_plugin reassignment. Just extract → flatten → dedupe → hand off.
-
-PatchGen owns the smarts now: plugin_to_idx lookup, FE/ESL handling, Loom resolution once per record.
-
-Loom cache guards fixed — JSON cache won't deserialize bytes as garbage anymore.
-
-BOS Generate button greyed-out bug killed. Controller stays in its lane, BOS handles its own state.
-
-BOS EDID column works. Reader extracts EDID, table shows it, you know 040179C9 is a pickaxe.
-
-Pluginless body/skin mods work. "Body" category added, asset swap scanner no longer dies on zero plugins.
-
-Config save fixed. Welcome screen no longer orphans patch_settings to a dangling object.
-
-Panic button added. Dev settings can hammer config to disk without closing.
-
-Tooltips everywhere. Every widget in BOS and SP now tells you what it does.
+• Worker stripped to a dumb pipe. No more prefix math lies, no origin_plugin reassignment. Just extract → flatten → dedupe → hand off.
+• PatchGen owns the smarts now: plugin_to_idx lookup, FE/ESL handling, Loom resolution once per record.
+• Loom cache guards fixed — JSON cache won't deserialize bytes as garbage anymore.
+• BOS Generate button greyed-out bug killed. Controller stays in its lane, BOS handles its own state.
+• BOS EDID column works. Reader extracts EDID, table shows it, you know 040179C9 is a pickaxe.
+• Pluginless body/skin mods work. "Body" category added, asset swap scanner no longer dies on zero plugins.
+• Config save fixed. Welcome screen no longer orphans patch_settings to a dangling object.
+• Panic button added. Dev settings can hammer config to disk without closing.
+• Tooltips everywhere. Every widget in BOS and SP now tells you what it does.
 
 Known quirk:
-Loom DNAM SE offset 12 is flags, not anim type. Still using EDID fallback for weapon animation detection. Needs research.
+• Loom DNAM SE offset 12 is flags, not anim type. Still using EDID fallback for weapon animation detection. Needs research.
 
 Need help?
   https://discord.gg/f6dFYNEBf

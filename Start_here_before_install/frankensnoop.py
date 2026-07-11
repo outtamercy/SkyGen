@@ -25,11 +25,16 @@ if __name__ == '__main__' or __package__ is None:
                 sys.path.insert(0, str(plugin_root))
         from core.constants import (BASE_GAME_PLUGINS, GLOBAL_IGNORE_PLUGINS, AE_CORE_FILES, 
                                   OFFICIAL_CC_PREFIX, hash_file_head, BLACKLIST_AUTHORS, BLACKLIST_KEYWORDS,
-                                  FRAMEWORK_SCENTS, FRAMEWORK_LOGIC_SIGNATURES, SCENT_PATTERNS as DEEP_SCENTS)
+                                  FRAMEWORK_SCENTS, FRAMEWORK_LOGIC_SIGNATURES, SCENT_PATTERNS as DEEP_SCENTS,
+                                  OBJECT_SIGS, LOGIC_SIGS, CURRENT_APP_VERSION, CURRENT_EXTRACTION_LOGIC_VERSION,
+                                  BLESSED_CORE_FILES
+                                  )
 else:
         from core.constants import (BASE_GAME_PLUGINS, GLOBAL_IGNORE_PLUGINS, AE_CORE_FILES, 
                                   OFFICIAL_CC_PREFIX, hash_file_head, BLACKLIST_AUTHORS, BLACKLIST_KEYWORDS,
                                   FRAMEWORK_SCENTS, FRAMEWORK_LOGIC_SIGNATURES, SCENT_PATTERNS as DEEP_SCENTS,
+                                  OBJECT_SIGS, LOGIC_SIGS, CURRENT_APP_VERSION, CURRENT_EXTRACTION_LOGIC_VERSION,
+                                  BLESSED_CORE_FILES
                                   )
 
 # ---- SELF-CONTAINED SNOOP LOGIC ----
@@ -127,10 +132,6 @@ SCENT_PATTERNS = {
         "Framework": re.compile(r"Framework|Base Object Swapper|Papyrus Extender|Address Library", re.I),
         "Engine": re.compile(r"Engine Fixes|Bug Fixes|SSE Fixes", re.I),
 }
-
-LOGIC_SIGS = {"QUST", "MGEF", "KYWD", "VMAD", "SCRP", "DLBR", "INFO", "DIAL"}
-OBJECT_SIGS = {"ARMO", "WEAP", "NPC_", "STAT", "FURN", "MISC", "CONT", "LIGH", "ALCH", "BOOK", "AMMO"}
-
 
 def extract_grup_signatures_deep(filepath: Path) -> Tuple[Set[str], bool]:
         """Rip through a plugin and grab every GRUP signature."""
@@ -369,11 +370,6 @@ def quick_sniff(plugin_path: str, mod_folder_hint: Optional[Path] = None) -> Plu
 
 
 # ---- FRANKIE'S BUILD LOGIC WITH ART ----
-
-CURRENT_APP_VERSION = "0.9.0-BETA"
-CURRENT_EXTRACTION_LOGIC_VERSION = 2
-BLESSED_HASH_PREFIX = "BLESSED_"
-
 def get_loadorder_signature(plugins: List[str]) -> str:
         """Generate hash of plugin sequence."""
         sequence = "|".join(p.lower() for p in plugins if p)
@@ -472,9 +468,7 @@ def build_manifest(source_dir: Path, output_path: Path, profile_name: str = "Def
                         continue
                 
                 plugin_lower = plugin_name.lower()
-                is_blessed = (plugin_name in BASE_GAME_PLUGINS or 
-                             plugin_name in AE_CORE_FILES or
-                             plugin_lower.startswith(OFFICIAL_CC_PREFIX))
+                is_blessed = plugin_name in BLESSED_CORE_FILES
                 
                 # Detailed blessing tiers
                 if is_blessed:

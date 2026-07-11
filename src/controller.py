@@ -665,6 +665,31 @@ class SkyGenUIController(QObject):
         self._generation_in_progress = True      # <-- FLAG SECOND
         self.threadpool.start(worker)            # <-- START LAST
 
+    def on_export_model_changes(self, include_weapons: bool = False) -> None:
+        """Harvest ARMO/WEAP and dump modelChange template entries to INI."""
+        self.log_info("Model Change template export starting...")
+
+        output_dir = self.patch_settings.skypatcher_output_folder
+        if not output_dir:
+            self.log_warning("Model Change export: no output folder set")
+            return
+
+        profile = self.organizer_wrapper.profile_name
+        file_name = f"SkyGen_ModelChanges_{profile}.ini"
+        output_path = Path(output_dir) / file_name
+
+        success = self.patch_gen.export_model_changes(
+            plugin_names=self.organizer_wrapper.active_plugins,
+            output_path=output_path,
+            include_weapons=include_weapons,
+            worker_callback=self,
+        )
+
+        if success:
+            self.log_info(f"Model Change template hammered out: {output_path}")
+        else:
+            self.log_warning("Model Change export: no records found or write failed")
+
     def _handle_worker_error(self, error_title: str, error_message: str) -> None:
         """Catch worker errors without crashing the UI."""
         self._generation_in_progress = False
