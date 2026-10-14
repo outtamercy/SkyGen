@@ -1,0 +1,1 @@
+DROP IN MO2 plugins FOLDER.txt

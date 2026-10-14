@@ -1,0 +1,220 @@
+/* SkyGenBlue Theme for SkyGen Plugin — gloss pass.
+   Frame image and transparency untouched; the controls got the
+   blue-chrome treatment: metal buttons, light-sweep hover, glass edges. */
+
+/* Base Dialog/Window background */
+QDialog {
+    background-image: url(SkyGenBlue/Frame.jpg);
+    background-position: center;
+    background-repeat: no-repeat;
+    color: #E0E0E0;
+}
+
+/* Group boxes — glass panels, slightly bluer sheen */
+QGroupBox {
+    background-color: rgba(30, 30, 40, 0.85);
+    border: 1px solid rgba(90, 110, 150, 0.8);
+    border-radius: 8px;
+    padding: 10px;
+    margin-top: 1em;
+    font-size: 14px;
+    font-weight: bold;
+    color: #ADD8E6;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 5px;
+    background-color: transparent;
+}
+
+QWidget {
+    background-color: transparent;
+    color: #E0E0E0;
+}
+
+/* Inputs and Comboboxes */
+QLineEdit, QComboBox {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba(55, 60, 78, 0.95),
+        stop:1 rgba(35, 38, 50, 0.95));
+    border: 1px solid #50586e;
+    border-radius: 5px;
+    padding: 5px;
+    color: #E0E0E0;
+    selection-background-color: #0078D7;
+}
+QLineEdit:focus, QComboBox:focus {
+    border: 1px solid #7EC3FF;
+}
+QComboBox::drop-down {
+    border-left: 1px solid #50586e;
+    width: 20px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #3a4152,
+        stop:1 #262b38);
+}
+QComboBox::drop-down:hover { background: #4a5268; }
+QComboBox::down-arrow {
+    image: url(SkyGenBlue/arrow_down.png);
+    width: 12px;
+    height: 12px;
+}
+
+/* Buttons — blue chrome with the sweep */
+QPushButton {
+    color: white;
+    font-weight: bold;
+    border-radius: 6px;
+    padding: 8px 15px;
+    min-width: 80px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #5BA0F2,
+        stop:0.4 #3A7BCD,
+        stop:0.5 #7EC3FF,
+        stop:0.6 #3A7BCD,
+        stop:1 #2A5E9E);
+    border-top: 1px solid #9CD0FF;
+    border-left: 1px solid #6FA8E8;
+    border-right: 1px solid #2A5E9E;
+    border-bottom: 2px solid #1E4678;
+}
+QPushButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #3A7BCD,
+        stop:0.7 #6FA8E8,
+        stop:0.8 #FFFFFF,
+        stop:0.9 #6FA8E8,
+        stop:1 #2A5E9E);
+    border-top: 1px solid #FFFFFF;
+}
+QPushButton:pressed {
+    background: #2A5E9E;
+    border: 1px solid #7EC3FF;
+    padding-top: 10px;
+    padding-bottom: 6px;
+}
+QPushButton:disabled {
+    background: #404858;
+    color: #8890A0;
+    border: 1px solid #4a5060;
+}
+
+/* Radio Buttons & Checkboxes */
+QRadioButton, QCheckBox {
+    color: #E0E0E0;
+    background: transparent;
+    spacing: 6px;
+}
+QRadioButton::indicator, QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 7px;
+    border: 1px solid #606a80;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #3a4152,
+        stop:1 #262b38);
+}
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator:hover, QCheckBox::indicator:hover { border: 1px solid #7EC3FF; }
+QRadioButton::indicator:checked, QCheckBox::indicator:checked {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #7EC3FF,
+        stop:1 #2A5E9E);
+    border: 1px solid #ADD8E6;
+}
+
+/* Text Edit (Status Log) */
+QTextEdit, QPlainTextEdit {
+    background-color: rgba(22, 24, 32, 0.92);
+    border: 1px solid #50586e;
+    border-radius: 8px;
+    padding: 8px;
+    color: #F0F0F0;
+    selection-background-color: #0078D7;
+}
+QTextEdit:read-only, QPlainTextEdit:read-only {
+    background-color: rgba(18, 20, 26, 0.95);
+}
+
+/* Progress */
+QProgressBar {
+    border: 1px solid #50586e;
+    border-radius: 6px;
+    text-align: center;
+    color: #E0E0E0;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #1e222c,
+        stop:1 #14161e);
+    height: 14px;
+}
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0.5, x2:1, y2:0.5,
+        stop:0 #2A5E9E,
+        stop:0.5 #7EC3FF,
+        stop:1 #2A5E9E);
+    border-radius: 5px;
+}
+
+/* Scrollbars — blue chrome */
+QScrollBar:vertical {
+    border: 1px solid #30363f;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #20242c,
+        stop:1 #16181e);
+    width: 12px;
+    margin: 1px;
+    border-radius: 6px;
+}
+QScrollBar:horizontal {
+    border: 1px solid #30363f;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #20242c,
+        stop:1 #16181e);
+    height: 12px;
+    margin: 1px;
+    border-radius: 6px;
+}
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #5BA0F2,
+        stop:0.5 #3A7BCD,
+        stop:1 #2A5E9E);
+    border: 1px solid #1E4678;
+    border-radius: 5px;
+    min-height: 20px;
+    min-width: 20px;
+}
+QScrollBar::handle:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #9CD0FF,
+        stop:0.5 #5BA0F2,
+        stop:1 #3A7BCD);
+    border: 1px solid #ADD8E6;
+}
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* Splitter handle */
+QSplitter::handle {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #2a2f3a,
+        stop:1 #1a1d24);
+}
+QSplitter::handle:hover { background: #3A7BCD; }
+
+/* Labels */
+QLabel {
+    color: #E0E0E0;
+    background: transparent;
+}
+
+/* Tooltips */
+QToolTip {
+    background: #232833;
+    color: #E0E0E0;
+    border: 1px solid #50586e;
+    padding: 4px 8px;
+}

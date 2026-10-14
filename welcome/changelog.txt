@@ -1,0 +1,39 @@
+Hey, something changed — new mods, removed mods, maybe you just ran LOOT. Frankie needs to re-sniff the load order before you can patch anything.
+
+Good news: since 2.0 the manifest sniff takes about two seconds, not a coffee break. And since 3.0 the deep scan got the same treatment. The cache will be cold once after updating — go get a snack, not a nap — then it's instant forever.
+
+While you wait, here's what's new since you last saw me:
+
+3.0 — "We Can Rebuild Him"
+• Cold-start full modlist scan: ~55 minutes to under 5. The deep record extractor is rust now (sg-extract), and it writes byte-identical output to what python did — proven record-for-record on the big masters, not vibes.
+• Skyrim.esm alone: 836,518 records, about 3 seconds. Used to be the reason you made tea.
+• Category scans skip mods that can't contain the category — the manifest already knows what every plugin holds, so the disk doesn't get touched for nothing.
+• Scans talk now. [rust-deep] lines in the log tell you what's parsing, what's skipped, and why. No more silent voids.
+• Python extractor stays as fallback. If the rust exe ever ghosts you, things get slow, not broken.
+
+2.0 — "654 Seconds of Lies"
+• Full-profile scan went from ~11 minutes to ~1.8 seconds. Yes, really. The culprit was a path resolver scanning the entire mods folder once per plugin — 1.1 million filesystem calls per scan. It had been there the whole time. We blamed everything else first, obviously.
+• Sniffer ported to a rust binary (sg-extract) with byte-exact parity, 809/809. Frankie stays as fallback.
+• Sniffs now batch into a single process spawn instead of 800+ (Defender was deep-scanning every spawn, ask me how I know).
+• No more console window flash on scan.
+• MO2 instance detection now asks the API where the ini actually lives instead of guessing. Global/portable instances both behave.
+
+0.9.1 — "The Cleanup"
+• Worker stripped to a dumb pipe. No more prefix math lies, no origin_plugin reassignment. Just extract → flatten → dedupe → hand off.
+• PatchGen owns the smarts now: plugin_to_idx lookup, FE/ESL handling, Loom resolution once per record.
+• Loom cache guards fixed — JSON cache won't deserialize bytes as garbage anymore.
+• BOS Generate button greyed-out bug killed. Controller stays in its lane, BOS handles its own state.
+• BOS EDID column works. Reader extracts EDID, table shows it, you know 040179C9 is a pickaxe.
+• Pluginless body/skin mods work. "Body" category added, asset swap scanner no longer dies on zero plugins.
+• Config save fixed. Welcome screen no longer orphans patch_settings to a dangling object.
+• Panic button added. Dev settings can hammer config to disk without closing.
+• Tooltips everywhere. Every widget in BOS and SP now tells you what it does.
+
+Known quirk:
+• Loom DNAM SE offset 12 is flags, not anim type. Still using EDID fallback for weapon animation detection. Needs research.
+
+Need help?
+  https://discord.gg/f6dFYNEBf
+  https://discord.gg/kR9Wjv6GG
+
+Scroll down, check the box, and smash Continue when it's ready.
