@@ -1,0 +1,253 @@
+SkyGen 3.1 — "Housekeeping"
+# 10-13-26
+
+Just a lil housekeeping and a surprise for modders.
+
+### Under the Hood
+- Dead code evicted. The python extractor shed its training wheels (lz4.exe tier, abandoned decomp paths, and a whole write-only registry module) — nothing it ever called, so nothing you'll miss.
+- Comments went on a diet. The FIX/NEW/CRITICAL archaeology got bulldozed; the grump survived intact. Director Fury still runs this place.
+- Four themes got a fresh coat of chrome. Glossy metal buttons, proper shine on the panels. The Obsidian & Amber one especially — she's a looker now.
+- The surprise. Download it and find out. I'm not spoiling it in a changelog, that's against the rules I just made up.
+
+---
+*Written by an old tired dev who cleaned the garage and found a rocket in it. Everything still works, it just works prettier.*
+
+---
+
+SkyGen 3.0 — "We Can Rebuild Him"
+The Deep Extract Goes to Rust — Oscar Goldman Was Right
+# 10-10-26 (yes, same day as 2.0. we don't rest, we just refactor)
+
+### The Symptom
+- Cold-cache full modlist scan (allcats): **~55 minutes**. Users called it "the startup hang." We called it "tuesday."
+- It got worse before it got better: profiling showed zero CPU for minutes at a time. Not deadlocked. Just a pure-python record parser wading through a gigabyte of masters one struct.unpack at a time, politely yielding the GIL so the UI could stay responsive while nothing happened.
+
+### The Fix
+- **PluginExtractor.extract_metadata → rust (sg-extract --extract).** Full port: TES4 header, recursive GRUP parsing, TLV sub-records with XXXX extended lengths, the whole three-tier decompression stack (lz4 block -> lz4 frame for the lz4.exe tier -> zlib with exact-size check). Rust writes the cache files DIRECTLY, byte-format identical to python's json.dump, using cache key strings PYTHON hands over — because mtime floats and sha256 are a bad combination and I refuse to find out why twice.
+- **One batch spawn for everything.** Cache consult first (unchanged keys), then ONE rust subprocess for all misses, then python extract_metadata as fallback for whatever rust didn't cover. Degraded, never broken. Frankie's cousin PE stays on the payroll.
+- **Manifest-aware skipping.** Filtered runs (single cat / modlist) read the per-profile manifest: if the plugin's sniffed GRUP signatures don't contain the filter sig, deep extraction would yield zero records — so the disk never gets touched. Manifest is re-read every call; profiles change, stale state is how you get 3am emails.
+- **Better logs.** Rust emits per-plugin diagnostics (records parsed, decomp tier counts, skip reasons with formids) that the bridge relays as [rust-deep] lines. Extraction is no longer a silent void where 40 minutes of honest work is indistinguishable from a hang.
+
+### The Numbers
+- Cold allcats in MO2: **~55 min -> 4.5 min wall** — and that includes MO2 boot, manifest build, the ENTIRE cold extraction, and forging 954 INIs. The extraction phase alone went from ~53 minutes to under 2.
+- Skyrim.esm (646MB, 836,518 records): python ~40+ min as part of the slog, **rust 3.2 seconds**. That's not a speedup, that's a change of species.
+- Phase speedup: >30x. Whole-run speedup: ~12x. The other 4 minutes were always forge time; we don't touch those.
+
+### Parity (Because "Faster and Wrong" Is Just Wrong, Quicker)
+- Byte-identical cache output vs python on: HearthFires.esm (all + ARMO filtered), Dawnguard.esm (all + ARMO), USSEP (all + ARMO), and Skyrim.esm (836k records, exact hash).
+- End-to-end: old-style vs orchestrator flatten output, record-for-record equal on a live load-order slice.
+- Every quirk replicated on purpose, annotated PYQUIRK in the source so nobody "fixes" them:
+  - python str.strip() eats - (unicode whitespace — file separators). Vanilla FULL fields are FULL of them. rust's trim() doesn't. now it does.
+  - GRUP labels decode utf-8-ignore (invalid bytes DROPPED), not rust's lossy (replacement chars). janky nested GRUPs hit this.
+  - any record with an ATXT subrecord dies on a ','.join(bytes) TypeError in python. rust drops them identically. yes it's a bug. no, 3.0 is not the day we find out what consumes those.
+  - cache key has no filter component (pre-existing, unchanged). Yes it can serve a stale filtered entry. Yes we know. It's load-bearing now.
+
+### Known Limitations
+- The 827MB-class plugins still extract twice on a fully cold cache (BOS path + SP path, same plugin, two keys). By design — they broke each other when coupled. Disk is cheaper than that week was.
+- Orphan cache keys from dead paths (old backups, other instances) never refill and just sit there. Delete them or don't; they're harmless and slightly smug.
+- First spawn of a freshly built exe still gets Defender's undivided attention. One-time cost per build. Accept it.
+
+---
+*Written by an old tired dev who rebuilt a man's legs at 2am and had him running before breakfast. 2.0 blamed the loop. 3.0 blamed the interpreter. Gentlemen, we rebuilt him. We had the technology. The technology was rust and it was sitting in the ModSlut folder the whole time.*
+
+---
+
+SkyGen 2.0 — "654 Seconds of Lies"
+The Startup Hang — Post-Mortem of a Witch Hunt
+# 10-10-26
+
+### The Symptom
+- Full-profile rebuild took **10 minutes 54 seconds**. Users described it as "MO2 takes forever to start." Technically accurate. Emotionally devastating.
+
+### The Fixes (Chronological Order of My Descent)
+- **Frankie → Rust (sg-extract).** Ported frankensnoop + sigsnoop to a rust binary. 809/809 byte-exact parity, zero field drift, `is_esm`/`is_esl` deliberately left `False` because frankie never set them and I refuse to "fix" what downstream verdicts depend on. Lives at `bin/sg-extract.exe`, built from the ModSlut repo. Build note for future-me: the project `.cargo/config.toml` points at a dead gnu linker — override with `--target x86_64-pc-windows-msvc` and DO NOT touch that config file. It's load-bearing. Somehow.
+- **Batch sniffing.** The manifest loop shelled out per plugin — 809 process spawns, each one a fresh Defender deep-scan of a brand-new unsigned exe. Collapsed into ONE batch spawn with a `path|hint` manifest (windows paths can't hold `|`, it's fine, stop worrying). Frankie stays as the fallback path if the exe ever ghosts us. Degraded, never broken.
+- **`CREATE_NO_WINDOW` everywhere.** No more cmd window flash-banging the user every sniff. The console has been sent to a farm upstate.
+- **The actual villain: `get_plugin_path()`.** THIS is where 138 of the remaining 140 seconds lived. For EVERY plugin it iterated the ENTIRE mods folder — ~700 mods × 809 plugins × 2 stat calls = **1.1 million hooked filesystem calls**, each one paying usvfs tax. Accidentally quadratic. I profiled the sniff, blamed the spawn, blamed usvfs, blamed exit flushes, instrumented a rust binary like a crime lab — and the whole time it was a path resolver written like it was being paid per stat call. Replaced with `resolve_plugin_paths()`: one sweep of the mods tree per load order, identical first-match-wins semantics. `get_plugin_path()` still exists for the small callers (deltas touch a handful of plugins, it can stay).
+
+### The Numbers
+- Full 809-plugin rebuild: **654s → 1.77s** (0.71s path sweep + 0.77s rust sniff + 0.29s classify/save/emit).
+- 370x faster. LC classify was never the problem (17ms). The manifest writes were never the problem. It was, and I cannot stress this enough, a for-loop.
+
+### Infrastructure
+- **MO2 instance detection (earlier today, before the madness).** `OrganizerWrapper` now asks the MO2 API where the ini actually lives (`basePath()/ModOrganizer.ini`, fallback `pluginDataPath().parent.parent`, then `profilePath().parent.parent`) instead of guessing paths like a psychic with a head injury. No more installing into the wrong instance. There is no `InstancePath=` in MO2 anywhere — the registry only stores `CurrentInstance`, a NAME. Yes I checked. Yes it took longer than it should have.
+
+### Tested
+- Rust parity: 809/809 plugins, every field, vs production `quick_sniff`. Perfect.
+- Live full rebuild in MO2 on the big profile: 1.77s, silos identical to known-good (GLOBAL 130 / SP 373 / BOS_PLUGINS 380).
+- Profile switch + forced rebuild on small profile: 4s banner-to-gate, cache re-validates on refresh.
+- Bench (for the record): frankie-python in-process = 0.80s vs rust batch = 0.73s. The rust port is not faster at sniffing. It was never about speed. It was about ONE spawn instead of 809. The rewrite was justified by vibes and remains correct by accident.
+
+### Known Limitations
+- First spawn of a freshly-built exe still gets eyeballed by Defender. One-time cost per build, not per scan. Accept it.
+- `get_plugin_path()` still does the full-mods-scan thing. It's fine for 3-plugin deltas. If anyone ever calls it in a loop again, I will know. The probes are gone but my disappointment is eternal.
+
+---
+*Written by an old tired dev who spent a day blaming everything except a for-loop, then fixed the for-loop and went from 11 minutes to 1.8 seconds. The rust binary is innocent. Frankie is innocent. usvfs is innocent. The loop did it. It's always the loop.*
+
+SkyGen 0.9.1c — "GIFs Won, Video Died"
+WelcomePanel — The QtMultimedia Funeral
+
+    ABANDONED: QtMultimedia/MP4 approach. PyQt6 6.7.1 bindings vs MO2's Qt 6.7.3 runtime = "procedure entry point not found" hell. No DLL shim fixes it. RIP.
+    CONFIRMED WORKING: QMovie GIF via QLabel + setScaledContents(True) + CacheAll. Silent, no audio, no ABI nightmare.
+    3 GIFs in repo: SkyGenforge-optimize.gif (forge), Septim-optimize.gif (coin), video3-optimize.gif (fallback).
+    Stripped all video corpses: _load_video, _start_video_playback, _poll_video_state, _on_media_error, _handle_video_failure, _log_video, load_situation_video — all deleted. _purge_video renamed to _purge_media, now only kills GIF labels.
+    Counter buried in config: welcome_view_count lives inside skygen_config.ini under [Application]. No standalone wp_counter.txt to make modders paranoid they're being tracked.
+    Hybrid load logic: First 3 opens rotate text files (first_launch.txt → readme.txt → changelog.txt). Run 4+ cycles the 3 GIFs. DEBUG_FORCE_WELCOME_GIF = True bypasses rotation and always goes GIF.
+    Fixed: load_asset(guard_situation) runs before setCurrentWidget(welcome_panel) in main_dialog.py. Reversing them = black/empty GIF.
+    Fixed: _on_dismissed dupe removed. Guard signal wires straight to the private method. No middleman.
+
+Constants
+
+    ADDED: DEBUG_FORCE_WELCOME_GIF toggle in core/constants.py.
+    REMOVED: DEBUG_WELCOME_GIF_INDEX — dead now that panel cycles on its own.
+
+Config
+
+    ADDED: welcome_view_count: int = 0 to ApplicationConfig. Auto-saves/auto-loads via existing to_dict()/from_dict() — no parser changes needed.
+
+# SkyGen 0.9.1-dev — CHANGELOG
+# 05-03-26
+
+## What Actually Got Done
+
+### SP (SkyPatcher) — The Big Brain Surgery
+- **Worker finally shut up.** Stripped the "helpful" post-processing loop that was lying about plugin origins. No more prefix math, no more origin_plugin reassignment. Worker is now a dumb pipe: extract → flatten → dedupe → hand off.
+- **PatchGen grew a spine.** Now owns `plugin_to_idx` lookup for filenames, FE/ESL handling (`FEXXX-` for ESLs, `02X-` for normals), and Loom resolution runs once per record before any mode logic. Single and Mass modes both get clean keywords.
+- **Loom won't crash on cached runs anymore.** JSON cache deserializes bytes into str/list, so `struct.unpack` was eating garbage. Added `isinstance(dnam, bytes)` guards in weapon/armor/spell resolution. Cache hits don't = instant death now.
+- **Models actually make sense.** `PatchGenerationOptions` is the one true dataclass in `core/models.py`. `config.py` imports it instead of defining its own zombie class. `utils/patch_settings.py` is a tombstone that redirects imports so nothing breaks.
+- **File ops got a shower.** Scrubbed old "CRITICAL FIX" archaeology. Applied clean version.
+
+### Infrastructure
+- **OrganizerWrapper ghosts the API.** One `basePath()` handshake in `__init__`, then never touches MO2 again. Everything else is INI parsing and file sniffing.
+
+### BOS (Base Object Swapper) — Fixes Applied
+- **Button state war resolved.** Controller was fighting BOS panel for who owns the generate button. Controller now stays in its lane (SP only). BOS handles its own readiness. Fixed greyed-out button on first panel open and panel switch.
+- **Generation logging beefed up.** Was just "BOS generation started" then radio silence. Now logs record counts, source→target pairing, and first 5 records at DEBUG level.
+- **EDID column added to FID table.** BOS reader now extracts EDID so you can tell `00012345` is a sword vs a table without guessing.
+- ** PE is overkill for BOS needs — like bringing a gun to a knife fight. Reader path stays.
+
+### The Ghost We Chased (2 Days of My Life I'll Never Get Back)
+- **040179C9 "phantom" pickaxe:** Turned out to be a real WEAP override in one of the 59 mods. Loom correctly identified it via EDID. PE wasn't drifting, Worker wasn't lying, code was actually fine. Just needed the right xEdit search method. Two days to figure out we were chasing our own tail.
+
+### Known Limitations
+- **Loom DNAM SE offset:** Still using EDID fallback. DNAM[12:14] is flags in SE, not anim type. Needs research for proper weapon animation detection.
+
+### Tested
+- SP ML Gen (59 plugins, WEAP category) — generated INIs, checked output filenames and filter lines. One INI verified in xEdit.
+- SP Single Gen (2 plugins) — still works, no regression.
+- BOS FID scan → table population → generate → INI output. EDID column populates.
+- file_ops.py — applied, no issues.
+
+### Pending Test (Before Ship)
+- BOS M2M mode (target→source swap).
+- SP Cat Gen (all categories).
+
+---
+*Written by an old tired dev who chased a ghost for 2 days then realized the code was right all along. xEdit search method was the real bug.*
+
+# SkyGen 0.9.1b CHANGELOG
+# 5/2/26
+
+## Loom (Auto-Keyword Resolver)
+- FIXED: PluginExtractor._parse_sub_records() now stores subrecord data instead of discarding it
+  - Text fields (EDID, FULL, MODL, etc.) decoded to strings
+  - Binary fields (DNAM, BODT, RNAM, KWDA, SPIT) preserved as bytes for struct unpacking
+- FIXED: Loom._edid_fallback() handles both bytes and str inputs (safety net)
+- FIXED: BOOK ML Gen now emits variance: IsSpellTome, IsRecipe, IsJournal, IsLetter, IsNote, IsMap, IsScroll instead of generic IsBook
+- FIXED: Loom toggle checkbox state persists across sessions
+- FIXED: Loom toggle greys out Sentence Builder combos on restore (setChecked() doesn't emit toggled)
+- FIXED: Controller's _on_loom_toggled() syncs data_exporter.loom_enabled at runtime
+- FIXED: _save_current_ui_config_to_models() saves loom_enabled to ApplicationConfig
+- FIXED: Removed duplicate flush_config() in main_dialog.reject() that caused race condition with controller's debounced save
+
+## Data Pipeline
+- FIXED: Cat Gen dropout — reader.py GRUP skip overshoot replaced with continue so children parse naturally
+- FIXED: Silo-only origin — killed loadorder.txt fallbacks in reader.py and plugin_extractor.py
+- FIXED: XXXX subrecord parsing in plugin_extractor.py — large subrecords no longer misalign the parser
+- FIXED: Cache deduplication — removed worker.py double-cache vault, data_exporter.py is single source of truth
+- FIXED: Mode bleed in worker.py — explicit MODE_SINGLE/MODE_MODLIST/MODE_ALLCATS flags
+
+## Profile / Session
+- ADDED: Profile switch detection — organizer_wrapper.py refresh_profile() re-parses ModOrganizer.ini
+- ADDED: main_dialog.py showEvent checks _last_profile vs current and reseals welcome/respawns PM if changed
+
+SkyGen 0.9.1b Changelog
+LC / Classification
+
+    BLESSED_CORE_FILES split: Base game masters remain sacred; CC mods are no longer unconditionally blessed
+    Added HDPT, HAIR to SKYPATCHER_SUPPORTED_RECORD_TYPES, BOS_SUPPORTED_RECORD_TYPES, OBJECT_SIGS, LOGIC_SIGS
+    LearningCore._calculate_score() tightened: content anchor (-40 penalty for real game objects), global hit threshold lowered to >= 1, tiny pure-logic gate capped at 500KB, ratio check gated behind content-anchor absence
+    frankensnoop.py now imports OBJECT_SIGS / LOGIC_SIGS from constants instead of hardcoded stubs
+
+Silo / Manifest
+
+    Added GLOBAL silo to PM emit pipeline: _filter_global_silo(), _save_silo_cache(), _load_silo_cache(), refresh_silos() cache path, and controller._rich_silos
+    generate_audit_cache() no longer hardcodes startswith('cc') blessed shield — trusts manifest is_blessed flag
+    _filter_global_silo() includes all layer=global mods (blessed + framework) so base game masters are visible under Global filter
+
+Blacklist / Auditor
+
+    bl_mgr.py get_mod_status() no longer hardcodes BLESSED_CORE_FILES check — reads from manifest entry / audit cache
+    auditor_dialog.py AE tier gated with entry.is_blessed guard so non-blessed AE mods fall through to CC classification
+    auditor_dialog.py CC tier now shows [CC-Framework] or [CC-Content] based on LC classification instead of unconditional [BLESSED-CC]
+
+UI / Memory
+
+    feedback.py StatusLogWidget switched to setMaximumBlockCount(1000) — fixes memory leak from unbounded QTextEdit growth
+
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing died with "Found 0 plugins" then "No Body records found." Three bugs stacked:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner.
+    The swap scanner gave up if the target mod had no plugins. Now it scans the whole load order — vanilla records live in Skyrim.esm and DLCs, not in the target folder.
+    We were filtering body parts by editor_id only. Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely.
+
+Fixed: Config actually saves for people who hit the welcome screen
+If your config lacked welcome_load_order_sig, you'd hit the welcome panel every time. _enter_workspace swapped in a fresh app_config but left patch_settings pointing at the old object. All your UI changes got written to the dangling object, then save wrote the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Fixed: Theme combo showing "default" ghost text
+Purged DEFAULT_THEME_NAME from theme_manager.py. Combo now shows only real themes. No phantom fallback.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the ML Gen / Cat Gen boxes. Now _update_combo_states forces a recalc when mode switches.
+Fixed: All-cats generation only produced ARMO INIs
+worker.py was stripping underscores from signatures — NPC_ became NPC, which didn't match SKYPATCHER_SUPPORTED_RECORD_TYPES. Only ARMO survived. Fixed the strip call.
+Fixed: Bare addKeywords in generated INIs
+patch_gen.py was writing filterByKeywords=plugin|FID:addKeywords with no value. SkyPatcher read it, saw nothing, skipped it. Now data_exporter.py attaches the first keyword from the cache, and patch_gen.py skips records with no keyword value instead of writing broken syntax.
+Fixed: 3-mode forge bleed in patch_gen.py
+Single, ML, and Cat Gen were sharing variables and loops. auto_filter existed in some branches but not others, causing UnboundLocalError. Now the forge has three walled-off blocks — Single gets SB only, ML gets SB only, Cat Gen gets auto-filter metadata. No bleed.
+Fixed: Startup freeze on large modlists
+refresh_silos() was rebuilding the audit cache from scratch every launch even when silo cache was valid. Now it only generates if missing.
+Fixed: Manifest duplicate section crash
+ConfigParser(strict=True) dies on duplicate [elle] sections. Switched to strict=False — loads last value, heals on next save.
+Fixed: Welcome panel firing on valid cache
+Guard was reading manifest sig instead of silo cache sig. Different hash sources = never matched. Now Guard checks the silo cache directly.
+Added: Panic button
+Dev settings has a "💾 Flush Config NOW" button. Hammers config to disk immediately without closing.
+Added: Tooltips everywhere
+BOS panel and SP panel now explain what every widget does. No more guessing.
+Added: keywords.ini hole fillers
+Added [arma], [weapon], [npc], [light], [flora], [tree], [alchemy], [book], [misc], [furniture], [container], [soulgem], [scroll], [perk], [shout], [enchantment], [activator], [static], [ingredient], [key], [armaddon].
+
+SkyGen 0.9b Changelog — "The Pluginless Edition"
+Fixed: Pluginless body/skin mods actually work now
+Used to be if you picked a mod with no plugins (like BnP male skin) as your M2M source, the whole thing would just die with "Found 0 plugins" then "No Body records found." Turns out we had three bugs stacked on top of each other:
+
+    "Body" wasn't in the asset category gate, so only "Skin" triggered the swap scanner. "Body" fell through to nowhere.
+    The swap scanner gave up if the target mod had no plugins of its own. Now it scans the whole load order instead — because vanilla records live in Skyrim.esm and the DLCs, not in the target mod folder.
+    We were filtering body parts by editor_id only, looking for substrings like "body" or "skin." Vanilla records have names like ArmorIronCuirass — no body keywords anywhere. Dropped that gate entirely. User picked the category, we trust it.
+
+Fixed: Config actually saves for people who see the welcome screen
+If your config didn't have welcome_load_order_sig stored, you'd hit the welcome panel every time. _enter_workspace would swap in a fresh app_config object but leave patch_settings pointing at the old one. All your UI changes got written to the dangling object, then save would write the new empty one. Poof. Gone.
+Now we sync patch_settings when we swap app_config, and _save_current_ui_config_to_models double-checks they match before flushing.
+Added: Panic button
+Sometimes you just wanna hammer the config to disk right now without closing the dialog. Dev settings section now has a "💾 Flush Config NOW" button. Smashes save_application_config and flush_config immediately. For when things feel haunted.
+Fixed: SP generate button ignored checkboxes
+Button state only checked combos, not the "Generate Entire ModList" / "Generate All Categories" checkboxes. So you could check a box and the button stayed dead. Now _update_combo_states forces a button recalc whenever mode switches.
+Fixed: BOS _scan_chance_spin tooltip crash
+Had the tooltip line sitting before the widget creation. Classic. Moved it after.
+Added: Tooltips everywhere
+BOS panel was missing explanations for half its widgets. Added tooltips for output folder, XYZ offsets, scan mode toggle, scan button, chance spin, clear/add/export buttons, category filter, and generate button. No more guessing what "FID Scan" means.
+Added: BOS generation progress logging
+M2M scan now logs "Scanning for Body records at 100% chance..." and "Writing N swaps at 100% chance to..." so you know the chance value actually got applied. Also added per-plugin heartbeat during the nuclear asset-scan fallback so the UI doesn't look frozen.

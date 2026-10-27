@@ -1,0 +1,9 @@
+SkyGen 3.0 — get it on GitHub
+
+Nexus auto-quarantined the 3.0 upload and rather than wait days for a
+manual review, 3.0 lives here:
+
+https://github.com/outtamercy/SkyGen/releases
+
+grab the latest release zip, drop the SkyGen folder into your MO2
+plugins folder, done. full changelog in the zip.
